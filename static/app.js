@@ -10,21 +10,24 @@ const fileLabels = {
   compound_info: "化合物文件",
   bio_raw_data: "生物原始数据",
   data_summary: "数据整理文档",
+  experiment_record: "试验记录",
 };
 
 const filePermissions = {
   compound_info: ["manager", "chem"],
   bio_raw_data: ["manager", "bio"],
   data_summary: ["manager", "bio"],
+  experiment_record: ["manager", "chem", "bio"],
 };
 
 const fileAccepts = {
   compound_info: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
   bio_raw_data: ".xlsx,.xls,.xlsm,.csv",
   data_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
+  experiment_record: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
 };
 
-const multiFileTypes = new Set(["compound_info", "data_summary"]);
+const multiFileTypes = new Set(["compound_info", "data_summary", "experiment_record"]);
 
 const statusMeta = [
   { key: "done", label: "已完成", cls: "done" },
@@ -204,6 +207,7 @@ function renderTable() {
       inputCell(batch, "bio_test_completed_date", "date", canEdit("bio_test_completed_date")),
       fileCell(batch, "compound_info"),
       fileCell(batch, "bio_raw_data"),
+      fileCell(batch, "experiment_record"),
       fileCell(batch, "data_summary"),
     );
     if (state.user.role === "manager") {
