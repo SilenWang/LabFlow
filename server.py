@@ -375,10 +375,11 @@ def serialize_deleted_project(row):
         "name": row["name"],
         "created_at": row["created_at"],
         "deleted_at": row["deleted_at"],
+        "deleted_batch_count": row["deleted_batch_count"],
     }
 
 
-def serialize_deleted_batch(row):
+def serialize_deleted_batch(conn, row):
     return {
         "id": row["id"],
         "project_id": row["project_id"],
@@ -386,7 +387,14 @@ def serialize_deleted_batch(row):
         "project_deleted_at": row["project_deleted_at"],
         "batch_no": row["batch_no"],
         "name": row["name"] or "",
+        "synthesis_submitted_date": row["synthesis_submitted_date"],
+        "synthesis_completed_date": row["synthesis_completed_date"],
+        "bio_test_start_date": row["bio_test_start_date"],
+        "bio_test_completed_date": row["bio_test_completed_date"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
         "deleted_at": row["deleted_at"],
+        "files": latest_files(conn, row["id"]),
     }
 
 
@@ -658,16 +666,22 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         with db() as conn:
             project_rows = conn.execute(
                 """
-                SELECT id, name, created_at, deleted_at
-                FROM projects
-                WHERE deleted_at IS NOT NULL
-                ORDER BY deleted_at DESC, id DESC
+                SELECT p.id, p.name, p.created_at, p.deleted_at,
+                       COUNT(b.id) AS deleted_batch_count
+                FROM projects p
+                LEFT JOIN batches b ON b.project_id = p.id AND b.deleted_at IS NOT NULL
+                WHERE p.deleted_at IS NOT NULL
+                GROUP BY p.id
+                ORDER BY p.deleted_at DESC, p.id DESC
                 """
             ).fetchall()
             batch_rows = conn.execute(
                 """
                 SELECT b.id, b.project_id, p.name AS project_name, p.deleted_at AS project_deleted_at,
-                       b.batch_no, b.name, b.deleted_at
+                       b.batch_no, b.name,
+                       b.synthesis_submitted_date, b.synthesis_completed_date,
+                       b.bio_test_start_date, b.bio_test_completed_date,
+                       b.created_at, b.updated_at, b.deleted_at
                 FROM batches b
                 JOIN projects p ON p.id = b.project_id
                 WHERE b.deleted_at IS NOT NULL
@@ -676,7 +690,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             ).fetchall()
         self.send_json({
             "projects": [serialize_deleted_project(row) for row in project_rows],
-            "batches": [serialize_deleted_batch(row) for row in batch_rows],
+            "batches": [serialize_deleted_batch(conn, row) for row in batch_rows],
         })
 
     def create_project(self, user):

@@ -711,7 +711,7 @@ function renderTrash(payload) {
       item.innerHTML = `
         <div>
           <strong>${escapeHtml(project.name)}</strong>
-          <span>删除时间：${shortTime(project.deleted_at)}</span>
+          <span>创建时间：${shortTime(project.created_at)} · 删除时间：${shortTime(project.deleted_at)} · 已删除批次 ${project.deleted_batch_count || 0} 个</span>
         </div>
       `;
       const btn = miniButton("恢复项目");
@@ -728,10 +728,16 @@ function renderTrash(payload) {
       const item = document.createElement("div");
       item.className = "trash-item";
       const projectState = batch.project_deleted_at ? "所属项目也在回收站" : "所属项目可用";
+      const meta = getStatus(batch);
+      const fileSummary = trashFileSummary(batch.files);
       item.innerHTML = `
         <div>
-          <strong>${escapeHtml(batch.name)} · ${escapeHtml(batch.batch_no)}</strong>
-          <span>${escapeHtml(batch.project_name)} · ${projectState} · 删除时间：${shortTime(batch.deleted_at)}</span>
+          <strong>${escapeHtml(batch.name)} · ${escapeHtml(batch.batch_no)} · ${meta.label}</strong>
+          <span>${escapeHtml(batch.project_name)} · ${projectState}</span>
+          <span>合成提交：${batch.synthesis_submitted_date || "-"} · 合成完成：${batch.synthesis_completed_date || "-"}</span>
+          <span>测试开始：${batch.bio_test_start_date || "-"} · 测试完成：${batch.bio_test_completed_date || "-"}</span>
+          <span>创建时间：${shortTime(batch.created_at)} · 更新时间：${shortTime(batch.updated_at)} · 删除时间：${shortTime(batch.deleted_at)}</span>
+          <span>${escapeHtml(fileSummary)}</span>
         </div>
       `;
       const btn = miniButton(batch.project_deleted_at ? "先恢复项目" : "恢复批次");
@@ -741,6 +747,20 @@ function renderTrash(payload) {
       batches.appendChild(item);
     });
   }
+}
+
+function trashFileSummary(files) {
+  const labels = [
+    ["compound_info", "化合物"],
+    ["experiment_record", "试验记录"],
+    ["bio_raw_data", "生物原始数据"],
+    ["data_summary", "数据整理"],
+  ];
+  return labels.map(([key, label]) => {
+    const bucket = files?.[key] || { versions: [] };
+    const latest = bucket.latest?.original_name ? `，最新：${bucket.latest.original_name}` : "";
+    return `${label} ${bucket.versions.length} 个${latest}`;
+  }).join("；");
 }
 
 function trashEmpty(text) {
