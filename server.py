@@ -55,6 +55,12 @@ FILE_LABELS = {
     "data_summary": "数据整理文档",
 }
 
+FILE_EXTENSIONS = {
+    "compound_info": (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".doc", ".docx"),
+    "bio_raw_data": (".xlsx", ".xls", ".xlsm", ".csv"),
+    "data_summary": (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".doc", ".docx"),
+}
+
 
 def now_iso():
     return dt.datetime.now(dt.timezone.utc).isoformat(timespec="seconds")
@@ -559,9 +565,15 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             filename_match = re.search(r'filename="([^"]*)"', disposition)
             name = name_match.group(1)
             if filename_match:
-                parts[name] = {"filename": filename_match.group(1), "content": content}
+                part = {"filename": filename_match.group(1), "content": content}
             else:
-                parts[name] = content.decode("utf-8", "replace")
+                part = content.decode("utf-8", "replace")
+            if name in parts:
+                if not isinstance(parts[name], list):
+                    parts[name] = [parts[name]]
+                parts[name].append(part)
+            else:
+                parts[name] = part
         return parts
 
     def login(self):
@@ -849,32 +861,39 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             raise RequestError(400, "文件类型不正确")
         if user["role"] not in FILE_FIELDS[file_type]:
             raise RequestError(403, "无权上传该类型文件")
-        if not isinstance(file_part, dict) or not file_part.get("filename"):
+        file_parts = file_part if isinstance(file_part, list) else [file_part]
+        file_parts = [part for part in file_parts if isinstance(part, dict) and part.get("filename")]
+        if not file_parts:
             raise RequestError(400, "请选择文件")
-        original_name = safe_filename(file_part["filename"])
-        if not original_name.lower().endswith((".xlsx", ".xls", ".csv")):
-            raise RequestError(400, "仅支持 Excel 或 CSV 文件")
-        content = file_part["content"]
-        if len(content) > 10 * 1024 * 1024:
-            raise RequestError(413, "单个文件不能超过 10MB")
+        allowed_extensions = FILE_EXTENSIONS[file_type]
         with db() as conn:
             batch = get_batch(conn, batch_id)
             if not batch:
                 raise RequestError(404, "批次不存在")
             folder = UPLOAD_DIR / str(batch_id) / file_type
             folder.mkdir(parents=True, exist_ok=True)
-            storage_name = f"{today_token()}_{secrets.token_hex(4)}_{original_name}"
-            path = folder / storage_name
-            path.write_bytes(content)
-            rel_path = path.relative_to(BASE_DIR).as_posix()
-            conn.execute(
-                """
-                INSERT INTO file_versions
-                (batch_id, file_type, original_name, storage_path, size_bytes, uploaded_by, uploaded_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (batch_id, file_type, original_name, rel_path, len(content), user["id"], now_iso()),
-            )
+            uploaded_at = now_iso()
+            for part in file_parts:
+                original_name = safe_filename(part["filename"])
+                if not original_name.lower().endswith(allowed_extensions):
+                    if file_type in ("compound_info", "data_summary"):
+                        raise RequestError(400, "仅支持 Excel、PDF 或 Word 文件")
+                    raise RequestError(400, "仅支持 Excel 或 CSV 文件")
+                content = part["content"]
+                if len(content) > 10 * 1024 * 1024:
+                    raise RequestError(413, "单个文件不能超过 10MB")
+                storage_name = f"{today_token()}_{secrets.token_hex(4)}_{original_name}"
+                path = folder / storage_name
+                path.write_bytes(content)
+                rel_path = path.relative_to(BASE_DIR).as_posix()
+                conn.execute(
+                    """
+                    INSERT INTO file_versions
+                    (batch_id, file_type, original_name, storage_path, size_bytes, uploaded_by, uploaded_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (batch_id, file_type, original_name, rel_path, len(content), user["id"], uploaded_at),
+                )
             conn.execute("UPDATE batches SET updated_at = ? WHERE id = ?", (now_iso(), batch_id))
             row = get_batch(conn, batch_id)
             serialized = serialize_batch(conn, row)

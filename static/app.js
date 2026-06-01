@@ -18,6 +18,14 @@ const filePermissions = {
   data_summary: ["manager", "bio"],
 };
 
+const fileAccepts = {
+  compound_info: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
+  bio_raw_data: ".xlsx,.xls,.xlsm,.csv",
+  data_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
+};
+
+const multiFileTypes = new Set(["compound_info", "data_summary"]);
+
 const statusMeta = [
   { key: "done", label: "已完成", cls: "done" },
   { key: "bio", label: "测试中", cls: "bio" },
@@ -247,19 +255,24 @@ function fileCell(batch, fileType) {
   const name = document.createElement("div");
   name.className = "file-name";
   name.title = latest?.original_name || "";
-  name.textContent = latest ? latest.original_name : "暂无文件";
+  if (bucket.versions.length > 1) {
+    name.textContent = `共 ${bucket.versions.length} 个文件`;
+    name.title = bucket.versions.map((file) => file.original_name).join("\n");
+  } else {
+    name.textContent = latest ? latest.original_name : "暂无文件";
+  }
   const actions = document.createElement("div");
   actions.className = "file-actions";
 
   if (latest) {
-    const download = miniButton("下载");
+    const download = miniButton(bucket.versions.length > 1 ? "下载最新" : "下载");
     download.addEventListener("click", () => {
       window.location.href = `/api/files/${latest.id}/download`;
     });
     actions.appendChild(download);
   }
 
-  const history = miniButton(`历史 ${bucket.versions.length}`);
+  const history = miniButton(`全部 ${bucket.versions.length}`);
   history.disabled = bucket.versions.length === 0;
   history.addEventListener("click", () => openHistory(batch, fileType));
   actions.appendChild(history);
@@ -304,12 +317,13 @@ function actionCell(batch) {
 async function uploadFile(batch, fileType) {
   const input = document.createElement("input");
   input.type = "file";
-  input.accept = ".xlsx,.xls,.csv";
+  input.accept = fileAccepts[fileType] || ".xlsx,.xls,.xlsm,.csv";
+  input.multiple = multiFileTypes.has(fileType);
   input.addEventListener("change", async () => {
-    if (!input.files?.[0]) return;
+    if (!input.files?.length) return;
     const form = new FormData();
     form.append("file_type", fileType);
-    form.append("file", input.files[0]);
+    Array.from(input.files).forEach((file) => form.append("file", file));
     try {
       const payload = await api(`/api/batches/${batch.id}/files`, {
         method: "POST",
@@ -317,7 +331,7 @@ async function uploadFile(batch, fileType) {
       });
       replaceBatch(payload.batch);
       renderAll();
-      showToast("文件已上传并保留为新版本");
+      showToast(input.files.length > 1 ? "多个文件已上传" : "文件已上传");
     } catch (err) {
       showToast(err.message);
     }
