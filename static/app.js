@@ -68,6 +68,7 @@ function roleLabel(role) {
 function canEdit(field) {
   const role = state.user?.role;
   if (role === "manager") return true;
+  if (["batch_no", "name"].includes(field)) return role === "chem";
   if (["synthesis_submitted_date", "synthesis_completed_date"].includes(field)) return role === "chem";
   if (["bio_test_start_date", "bio_test_completed_date"].includes(field)) return role === "bio";
   return false;
@@ -117,6 +118,9 @@ function renderUser() {
   $("#userBadge").innerHTML = `<strong>${displayName}</strong>`;
   document.querySelectorAll(".manager-only").forEach((el) => {
     el.classList.toggle("hidden", state.user.role !== "manager");
+  });
+  document.querySelectorAll(".batch-create-only").forEach((el) => {
+    el.classList.toggle("hidden", !["manager", "chem"].includes(state.user.role));
   });
 }
 
@@ -191,8 +195,8 @@ function renderTable() {
     const tr = document.createElement("tr");
     tr.append(
       textCell(batch.project_name),
-      inputCell(batch, "batch_no", "text", state.user.role === "manager", "batch-no-input"),
-      inputCell(batch, "name", "text", state.user.role === "manager", "wide-input"),
+      inputCell(batch, "batch_no", "text", canEdit("batch_no"), "batch-no-input"),
+      inputCell(batch, "name", "text", canEdit("name"), "wide-input"),
       statusCell(batch),
       inputCell(batch, "synthesis_submitted_date", "date", canEdit("synthesis_submitted_date")),
       inputCell(batch, "synthesis_completed_date", "date", canEdit("synthesis_completed_date")),

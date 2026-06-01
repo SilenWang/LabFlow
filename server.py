@@ -38,8 +38,8 @@ DATE_FIELDS = {
 }
 
 TEXT_FIELDS = {
-    "batch_no": {"manager"},
-    "name": {"manager"},
+    "batch_no": {"manager", "chem"},
+    "name": {"manager", "chem"},
     "project_id": {"manager"},
 }
 
@@ -522,6 +522,10 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         if user["role"] != "manager":
             raise RequestError(403, "只有总负责人可以执行此操作")
 
+    def require_batch_creator(self, user):
+        if user["role"] not in {"manager", "chem"}:
+            raise RequestError(403, "只有总负责人或化学部门可以创建批次")
+
     def read_json(self):
         length = int(self.headers.get("Content-Length", "0") or "0")
         if length == 0:
@@ -748,7 +752,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         self.send_json({"batches": batches})
 
     def create_batch(self, user):
-        self.require_manager(user)
+        self.require_batch_creator(user)
         payload = self.read_json()
         project_id = int(payload.get("project_id") or 0)
         batch_no = clean_text(payload.get("batch_no"), 80)
