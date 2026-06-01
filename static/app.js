@@ -206,8 +206,8 @@ function renderTable() {
       inputCell(batch, "bio_test_start_date", "date", canEdit("bio_test_start_date")),
       inputCell(batch, "bio_test_completed_date", "date", canEdit("bio_test_completed_date")),
       fileCell(batch, "compound_info"),
-      fileCell(batch, "bio_raw_data"),
       fileCell(batch, "experiment_record"),
+      fileCell(batch, "bio_raw_data"),
       fileCell(batch, "data_summary"),
     );
     if (state.user.role === "manager") {
