@@ -6,3 +6,6 @@ tools/
 *.log
 __pycache__/
 *.pyc
+# pixi environments
+.pixi/*
+!.pixi/config.toml

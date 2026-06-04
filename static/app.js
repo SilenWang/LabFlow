@@ -11,6 +11,7 @@ const fileLabels = {
   bio_raw_data: "生物原始数据",
   data_summary: "数据整理文档",
   experiment_record: "试验记录",
+  experiment_summary: "实验小结",
 };
 
 const filePermissions = {
@@ -18,16 +19,18 @@ const filePermissions = {
   bio_raw_data: ["manager", "bio"],
   data_summary: ["manager", "bio"],
   experiment_record: ["manager", "chem", "bio"],
+  experiment_summary: ["manager", "chem", "bio"],
 };
 
 const fileAccepts = {
-  compound_info: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
+  compound_info: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx,.ppt,.pptx",
   bio_raw_data: ".xlsx,.xls,.xlsm,.csv",
-  data_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
-  experiment_record: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
+  data_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx,.ppt,.pptx",
+  experiment_record: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx,.ppt,.pptx",
+  experiment_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx,.ppt,.pptx",
 };
 
-const multiFileTypes = new Set(["compound_info", "data_summary", "experiment_record"]);
+const multiFileTypes = new Set(["compound_info", "data_summary", "experiment_record", "experiment_summary"]);
 
 const statusMeta = [
   { key: "done", label: "已完成", cls: "done" },
@@ -71,7 +74,7 @@ function roleLabel(role) {
 function canEdit(field) {
   const role = state.user?.role;
   if (role === "manager") return true;
-  if (["batch_no", "name"].includes(field)) return role === "chem";
+  if (["batch_no", "name", "remark"].includes(field)) return role === "chem";
   if (["synthesis_submitted_date", "synthesis_completed_date"].includes(field)) return role === "chem";
   if (["bio_test_start_date", "bio_test_completed_date"].includes(field)) return role === "bio";
   return false;
@@ -215,7 +218,8 @@ function renderTable() {
     tr.append(
       textCell(batch.project_name),
       inputCell(batch, "batch_no", "text", canEdit("batch_no"), "batch-no-input"),
-      inputCell(batch, "name", "text", canEdit("name"), "wide-input"),
+      nameCell(batch),
+      remarkCell(batch),
       statusCell(batch),
       inputCell(batch, "synthesis_submitted_date", "date", canEdit("synthesis_submitted_date")),
       inputCell(batch, "synthesis_completed_date", "date", canEdit("synthesis_completed_date")),
@@ -225,6 +229,7 @@ function renderTable() {
       fileCell(batch, "experiment_record"),
       fileCell(batch, "bio_raw_data"),
       fileCell(batch, "data_summary"),
+      fileCell(batch, "experiment_summary"),
     );
     if (state.user.role === "manager") {
       tr.append(actionCell(batch));
@@ -336,6 +341,112 @@ function actionCell(batch) {
   });
   td.appendChild(del);
   return td;
+}
+
+function nameCell(batch) {
+  const td = document.createElement("td");
+  td.className = "name-cell";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = batch.name || "";
+  input.disabled = !canEdit("name");
+  input.className = "wide-input";
+  input.addEventListener("change", async () => {
+    try {
+      const payload = await api(`/api/batches/${batch.id}`, {
+        method: "PATCH",
+        body: { name: input.value },
+      });
+      replaceBatch(payload.batch);
+      renderAll();
+      showToast("已保存");
+    } catch (err) {
+      input.value = batch.name || "";
+      showToast(err.message);
+    }
+  });
+  td.appendChild(input);
+  return td;
+}
+
+function remarkCell(batch) {
+  const td = document.createElement("td");
+  td.className = "remark-cell";
+  const text = document.createElement("span");
+  text.className = "remark-text";
+  text.textContent = (batch.remark || "").slice(0, 20);
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "detail-icon-btn";
+  btn.title = "查看详情";
+  btn.textContent = "📄";
+  btn.addEventListener("click", () => openBatchDetail(batch));
+  td.append(text, btn);
+  return td;
+}
+
+function openBatchDetail(batch) {
+  const body = $("#batchDetailBody");
+  const status = getStatus(batch);
+  const showRemark = canEdit("remark");
+  body.innerHTML = `
+    <div class="detail-field">
+      <span class="detail-label">所属项目</span>
+      <span class="detail-value">${escapeHtml(batch.project_name)}</span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">批次编号</span>
+      <span class="detail-value">${escapeHtml(batch.batch_no)}</span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">批次名称</span>
+      <span class="detail-value">${escapeHtml(batch.name)}</span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">状态</span>
+      <span class="detail-value"><span class="status ${status.cls}">${status.label}</span></span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">备注</span>
+      <textarea class="detail-remark" maxlength="1000" rows="4" ${showRemark ? "" : "disabled"}>${escapeHtml(batch.remark)}</textarea>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">合成提交日期</span>
+      <span class="detail-value">${batch.synthesis_submitted_date || "-"}</span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">合成完成日期</span>
+      <span class="detail-value">${batch.synthesis_completed_date || "-"}</span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">测试开始日期</span>
+      <span class="detail-value">${batch.bio_test_start_date || "-"}</span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">测试完成日期</span>
+      <span class="detail-value">${batch.bio_test_completed_date || "-"}</span>
+    </div>
+  `;
+  const remarkEl = body.querySelector(".detail-remark");
+  if (remarkEl && !remarkEl.disabled) {
+    const saveOnChange = async () => {
+      try {
+        const payload = await api(`/api/batches/${batch.id}`, {
+          method: "PATCH",
+          body: { remark: remarkEl.value },
+        });
+        replaceBatch(payload.batch);
+        renderAll();
+        showToast("备注已保存");
+      } catch (err) {
+        remarkEl.value = batch.remark || "";
+        showToast(err.message);
+      }
+    };
+    remarkEl.addEventListener("change", saveOnChange);
+  }
+  $("#batchDetailTitle").textContent = `批次详情 · ${escapeHtml(batch.batch_no)}`;
+  $("#batchDetailDialog").showModal();
 }
 
 async function uploadFile(batch, fileType) {
@@ -642,6 +753,7 @@ function bindEvents() {
           project_id: form.get("project_id"),
           batch_no: form.get("batch_no"),
           name: form.get("name"),
+          remark: form.get("remark"),
         },
       });
       $("#batchDialog").close();
@@ -833,6 +945,7 @@ function trashFileSummary(files) {
     ["experiment_record", "试验记录"],
     ["bio_raw_data", "生物原始数据"],
     ["data_summary", "数据整理"],
+    ["experiment_summary", "实验小结"],
   ];
   return labels.map(([key, label]) => {
     const bucket = files?.[key] || { versions: [] };

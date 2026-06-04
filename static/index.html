@@ -89,6 +89,7 @@
                   <th>项目</th>
                   <th>批次编号</th>
                   <th>批次名称</th>
+                  <th>批次备注</th>
                   <th>状态</th>
                   <th>合成提交</th>
                   <th>合成完成</th>
@@ -98,6 +99,7 @@
                   <th>试验记录</th>
                   <th>生物原始数据</th>
                   <th>数据整理文档</th>
+                  <th>实验小结</th>
                   <th class="manager-only hidden">操作</th>
                 </tr>
               </thead>
@@ -144,6 +146,10 @@
         <span>批次名称</span>
         <input name="name" required maxlength="120">
       </label>
+      <label>
+        <span>备注</span>
+        <textarea name="remark" maxlength="1000" rows="3" class="batch-remark-input"></textarea>
+      </label>
       <div class="modal-actions">
         <button class="secondary" value="cancel" type="button" data-close>取消</button>
         <button class="primary" value="default" type="submit">保存</button>
@@ -158,6 +164,16 @@
         <button class="icon-btn" type="button" data-close>×</button>
       </div>
       <div id="historyList" class="history-list"></div>
+    </div>
+  </dialog>
+
+  <dialog id="batchDetailDialog">
+    <div class="modal">
+      <div class="modal-head">
+        <h3 id="batchDetailTitle">批次详情</h3>
+        <button class="icon-btn" type="button" data-close>×</button>
+      </div>
+      <div id="batchDetailBody" class="detail-body"></div>
     </div>
   </dialog>
 

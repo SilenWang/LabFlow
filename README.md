@@ -95,6 +95,7 @@ ipconfig
 - 生物原始数据文件：支持 Excel、CSV。
 - 试验记录：支持 Excel、CSV、PDF、Word，可一次上传多个文件；Leader、Chem、Bio 均可上传/下载。
 - 数据整理文档：支持 Excel、CSV、PDF、Word，可一次上传多个文件。
+- 实验小结：支持 Excel、CSV、PDF、Word，可一次上传多个文件；Leader、Chem、Bio 均可上传/下载。
 - 文件不会覆盖旧文件，所有历史文件都可在“全部”中逐个下载。
 
 ## 数据位置
