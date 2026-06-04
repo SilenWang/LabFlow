@@ -394,11 +394,13 @@ function openHistory(batch, fileType) {
         <span>${escapeHtml(file.uploaded_by)} · ${shortTime(file.uploaded_at)} · ${formatSize(file.size_bytes)}</span>
       </div>
     `;
+    const btnGroup = document.createElement("div");
+    btnGroup.className = "file-actions";
     const btn = miniButton("下载");
     btn.addEventListener("click", () => {
       window.location.href = `/api/files/${file.id}/download`;
     });
-    item.appendChild(btn);
+    btnGroup.appendChild(btn);
     if (canDelete(fileType)) {
       const del = miniButton("删除");
       del.classList.add("danger");
@@ -413,8 +415,9 @@ function openHistory(batch, fileType) {
           showToast(err.message);
         }
       });
-      item.appendChild(del);
+      btnGroup.appendChild(del);
     }
+    item.appendChild(btnGroup);
     list.appendChild(item);
   });
   if (bucket.versions.length === 0) {
