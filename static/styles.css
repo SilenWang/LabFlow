@@ -530,24 +530,23 @@ td .batch-no-input {
 }
 
 .name-cell {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.name-cell input {
-  flex: 1;
-  min-width: 0;
+  position: relative;
+  padding-right: 30px;
 }
 .detail-icon-btn {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
   flex-shrink: 0;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   padding: 0;
   border: 1px solid transparent;
   border-radius: 4px;
   background: transparent;
-  color: #344054;
-  font-size: 13px;
+  color: #667085;
+  font-size: 15px;
   line-height: 1;
   cursor: pointer;
   display: inline-grid;

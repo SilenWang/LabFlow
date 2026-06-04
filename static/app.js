@@ -368,7 +368,7 @@ function nameCell(batch) {
   btn.type = "button";
   btn.className = "detail-icon-btn";
   btn.title = "查看详情";
-  btn.textContent = "→";
+  btn.textContent = "📄";
   btn.addEventListener("click", () => openBatchDetail(batch));
   td.append(input, btn);
   return td;
