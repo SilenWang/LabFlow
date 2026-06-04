@@ -294,23 +294,6 @@ function fileCell(batch, fileType) {
       window.location.href = `/api/files/${latest.id}/download`;
     });
     actions.appendChild(download);
-
-    if (canDelete(fileType)) {
-      const del = miniButton("删除");
-      del.classList.add("danger");
-      del.addEventListener("click", async (event) => {
-        event.stopPropagation();
-        if (!confirm(`确认删除 ${latest.original_name}？`)) return;
-        try {
-          await api(`/api/files/${latest.id}`, { method: "DELETE" });
-          await loadData();
-          showToast("文件已删除");
-        } catch (err) {
-          showToast(err.message);
-        }
-      });
-      actions.appendChild(del);
-    }
   }
 
   const history = miniButton(`全部 ${bucket.versions.length}`);
