@@ -23,11 +23,11 @@ const filePermissions = {
 };
 
 const fileAccepts = {
-  compound_info: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
+  compound_info: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx,.ppt,.pptx",
   bio_raw_data: ".xlsx,.xls,.xlsm,.csv",
-  data_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
-  experiment_record: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
-  experiment_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
+  data_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx,.ppt,.pptx",
+  experiment_record: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx,.ppt,.pptx",
+  experiment_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx,.ppt,.pptx",
 };
 
 const multiFileTypes = new Set(["compound_info", "data_summary", "experiment_record", "experiment_summary"]);
