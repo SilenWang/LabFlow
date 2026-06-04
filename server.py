@@ -695,7 +695,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             batch_rows = conn.execute(
                 """
                 SELECT b.id, b.project_id, p.name AS project_name, p.deleted_at AS project_deleted_at,
-                       b.batch_no, b.name,
+                       b.batch_no, b.name, b.remark,
                        b.synthesis_submitted_date, b.synthesis_completed_date,
                        b.bio_test_start_date, b.bio_test_completed_date,
                        b.created_at, b.updated_at, b.deleted_at
