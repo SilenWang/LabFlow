@@ -42,6 +42,7 @@ def init_db():
                 project_id INTEGER NOT NULL,
                 batch_no TEXT NOT NULL,
                 name TEXT NOT NULL UNIQUE,
+                remark TEXT,
                 synthesis_submitted_date TEXT,
                 synthesis_completed_date TEXT,
                 bio_test_start_date TEXT,
@@ -80,6 +81,9 @@ def migrate_schema(conn):
     ).fetchone()
     if not row or not row["sql"]:
         return
+    columns = [r["name"] for r in conn.execute("PRAGMA table_info(batches)").fetchall()]
+    if "remark" not in columns:
+        conn.execute("ALTER TABLE batches ADD COLUMN remark TEXT")
     sql = row["sql"]
     if "batch_no TEXT NOT NULL UNIQUE" not in sql and "name TEXT NOT NULL UNIQUE" in sql:
         return
@@ -91,6 +95,7 @@ def migrate_schema(conn):
             project_id INTEGER NOT NULL,
             batch_no TEXT NOT NULL,
             name TEXT NOT NULL UNIQUE,
+            remark TEXT,
             synthesis_submitted_date TEXT,
             synthesis_completed_date TEXT,
             bio_test_start_date TEXT,
@@ -104,9 +109,9 @@ def migrate_schema(conn):
         );
 
         INSERT INTO batches_new
-        (id, project_id, batch_no, name, synthesis_submitted_date, synthesis_completed_date,
+        (id, project_id, batch_no, name, remark, synthesis_submitted_date, synthesis_completed_date,
          bio_test_start_date, bio_test_completed_date, created_by, created_at, updated_at, deleted_at)
-        SELECT id, project_id, batch_no, name, synthesis_submitted_date, synthesis_completed_date,
+        SELECT id, project_id, batch_no, name, remark, synthesis_submitted_date, synthesis_completed_date,
                bio_test_start_date, bio_test_completed_date, created_by, created_at, updated_at, deleted_at
         FROM batches;
 
