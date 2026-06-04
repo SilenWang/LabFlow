@@ -490,8 +490,8 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             for part in file_parts:
                 original_name = safe_filename(part["filename"])
                 if not original_name.lower().endswith(allowed_extensions):
-                    if file_type in ("compound_info", "data_summary", "experiment_record"):
-                        raise RequestError(400, "仅支持 Excel、PDF 或 Word 文件")
+                    if file_type in ("compound_info", "data_summary", "experiment_record", "experiment_summary"):
+                        raise RequestError(400, "仅支持 Excel、PDF、Word 或 PPT 文件")
                     raise RequestError(400, "仅支持 Excel 或 CSV 文件")
                 content = part["content"]
                 if len(content) > 10 * 1024 * 1024:

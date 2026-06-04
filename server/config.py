@@ -33,6 +33,7 @@ FILE_FIELDS = {
     "bio_raw_data": {"manager", "bio"},
     "data_summary": {"manager", "bio"},
     "experiment_record": {"manager", "chem", "bio"},
+    "experiment_summary": {"manager", "chem", "bio"},
 }
 
 FILE_LABELS = {
@@ -40,11 +41,13 @@ FILE_LABELS = {
     "bio_raw_data": "生物原始数据文件",
     "data_summary": "数据整理文档",
     "experiment_record": "试验记录",
+    "experiment_summary": "实验小结",
 }
 
 FILE_EXTENSIONS = {
-    "compound_info": (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".doc", ".docx"),
+    "compound_info": (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".doc", ".docx", ".ppt", ".pptx"),
     "bio_raw_data": (".xlsx", ".xls", ".xlsm", ".csv"),
-    "data_summary": (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".doc", ".docx"),
-    "experiment_record": (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".doc", ".docx"),
+    "data_summary": (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".doc", ".docx", ".ppt", ".pptx"),
+    "experiment_record": (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".doc", ".docx", ".ppt", ".pptx"),
+    "experiment_summary": (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".doc", ".docx", ".ppt", ".pptx"),
 }
