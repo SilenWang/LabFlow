@@ -533,6 +533,20 @@ td .batch-no-input {
   position: relative;
   padding-right: 30px;
 }
+.remark-cell {
+  position: relative;
+  padding-right: 30px;
+}
+.remark-text {
+  display: inline-block;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 32px;
+}
 .detail-icon-btn {
   position: absolute;
   top: 50%;
