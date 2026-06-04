@@ -218,7 +218,7 @@ function renderTable() {
     tr.append(
       textCell(batch.project_name),
       inputCell(batch, "batch_no", "text", canEdit("batch_no"), "batch-no-input"),
-      inputCell(batch, "name", "text", canEdit("name"), "wide-input"),
+      nameCell(batch),
       statusCell(batch),
       inputCell(batch, "synthesis_submitted_date", "date", canEdit("synthesis_submitted_date")),
       inputCell(batch, "synthesis_completed_date", "date", canEdit("synthesis_completed_date")),
@@ -229,7 +229,6 @@ function renderTable() {
       fileCell(batch, "bio_raw_data"),
       fileCell(batch, "data_summary"),
       fileCell(batch, "experiment_summary"),
-      detailCell(batch),
     );
     if (state.user.role === "manager") {
       tr.append(actionCell(batch));
@@ -343,11 +342,35 @@ function actionCell(batch) {
   return td;
 }
 
-function detailCell(batch) {
+function nameCell(batch) {
   const td = document.createElement("td");
-  const btn = miniButton("详情");
+  td.className = "name-cell";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.value = batch.name || "";
+  input.disabled = !canEdit("name");
+  input.className = "wide-input";
+  input.addEventListener("change", async () => {
+    try {
+      const payload = await api(`/api/batches/${batch.id}`, {
+        method: "PATCH",
+        body: { name: input.value },
+      });
+      replaceBatch(payload.batch);
+      renderAll();
+      showToast("已保存");
+    } catch (err) {
+      input.value = batch.name || "";
+      showToast(err.message);
+    }
+  });
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "detail-icon-btn";
+  btn.title = "查看详情";
+  btn.textContent = "📄";
   btn.addEventListener("click", () => openBatchDetail(batch));
-  td.appendChild(btn);
+  td.append(input, btn);
   return td;
 }
 
