@@ -815,21 +815,6 @@ function renderTrash(payload) {
       batches.appendChild(item);
     });
   }
-}
-
-function trashFileSummary(files) {
-  const labels = [
-    ["compound_info", "化合物"],
-    ["experiment_record", "试验记录"],
-    ["bio_raw_data", "生物原始数据"],
-    ["data_summary", "数据整理"],
-  ];
-  return labels.map(([key, label]) => {
-    const bucket = files?.[key] || { versions: [] };
-    const latest = bucket.latest?.original_name ? `，最新：${bucket.latest.original_name}` : "";
-    return `${label} ${bucket.versions.length} 个${latest}`;
-  }).join("；");
-}
 
   const filesEl = $("#trashFiles");
   filesEl.innerHTML = "";
@@ -854,6 +839,20 @@ function trashFileSummary(files) {
       filesEl.appendChild(item);
     });
   }
+}
+
+function trashFileSummary(files) {
+  const labels = [
+    ["compound_info", "化合物"],
+    ["experiment_record", "试验记录"],
+    ["bio_raw_data", "生物原始数据"],
+    ["data_summary", "数据整理"],
+  ];
+  return labels.map(([key, label]) => {
+    const bucket = files?.[key] || { versions: [] };
+    const latest = bucket.latest?.original_name ? `，最新：${bucket.latest.original_name}` : "";
+    return `${label} ${bucket.versions.length} 个${latest}`;
+  }).join("；");
 }
 
 function trashEmpty(text) {
