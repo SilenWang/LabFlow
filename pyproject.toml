@@ -1,0 +1,22 @@
+[project]
+dependencies = []
+name = "LabFlow"
+requires-python = ">= 3.11"
+version = "0.1.0"
+
+[build-system]
+build-backend = "hatchling.build"
+requires = ["hatchling"]
+
+[tool.pixi.workspace]
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[tool.pixi.pypi-dependencies]
+labflow = { path = ".", editable = true }
+
+[tool.pixi.tasks]
+start = "python server.py"
+
+[tool.pixi.dependencies]
+python = ">=3.14.5,<3.15"

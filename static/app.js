@@ -74,7 +74,7 @@ function roleLabel(role) {
 function canEdit(field) {
   const role = state.user?.role;
   if (role === "manager") return true;
-  if (["batch_no", "name"].includes(field)) return role === "chem";
+  if (["batch_no", "name", "remark"].includes(field)) return role === "chem";
   if (["synthesis_submitted_date", "synthesis_completed_date"].includes(field)) return role === "chem";
   if (["bio_test_start_date", "bio_test_completed_date"].includes(field)) return role === "bio";
   return false;
@@ -229,6 +229,7 @@ function renderTable() {
       fileCell(batch, "bio_raw_data"),
       fileCell(batch, "data_summary"),
       fileCell(batch, "experiment_summary"),
+      detailCell(batch),
     );
     if (state.user.role === "manager") {
       tr.append(actionCell(batch));
@@ -340,6 +341,77 @@ function actionCell(batch) {
   });
   td.appendChild(del);
   return td;
+}
+
+function detailCell(batch) {
+  const td = document.createElement("td");
+  const btn = miniButton("详情");
+  btn.addEventListener("click", () => openBatchDetail(batch));
+  td.appendChild(btn);
+  return td;
+}
+
+function openBatchDetail(batch) {
+  const body = $("#batchDetailBody");
+  const status = getStatus(batch);
+  const showRemark = canEdit("remark");
+  body.innerHTML = `
+    <div class="detail-field">
+      <span class="detail-label">所属项目</span>
+      <span class="detail-value">${escapeHtml(batch.project_name)}</span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">批次编号</span>
+      <span class="detail-value">${escapeHtml(batch.batch_no)}</span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">批次名称</span>
+      <span class="detail-value">${escapeHtml(batch.name)}</span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">状态</span>
+      <span class="detail-value"><span class="status ${status.cls}">${status.label}</span></span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">备注</span>
+      <textarea class="detail-remark" maxlength="1000" rows="4" ${showRemark ? "" : "disabled"}>${escapeHtml(batch.remark)}</textarea>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">合成提交日期</span>
+      <span class="detail-value">${batch.synthesis_submitted_date || "-"}</span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">合成完成日期</span>
+      <span class="detail-value">${batch.synthesis_completed_date || "-"}</span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">测试开始日期</span>
+      <span class="detail-value">${batch.bio_test_start_date || "-"}</span>
+    </div>
+    <div class="detail-field">
+      <span class="detail-label">测试完成日期</span>
+      <span class="detail-value">${batch.bio_test_completed_date || "-"}</span>
+    </div>
+  `;
+  const remarkEl = body.querySelector(".detail-remark");
+  if (remarkEl && !remarkEl.disabled) {
+    const saveOnChange = async () => {
+      try {
+        const payload = await api(`/api/batches/${batch.id}`, {
+          method: "PATCH",
+          body: { remark: remarkEl.value },
+        });
+        replaceBatch(payload.batch);
+        showToast("备注已保存");
+      } catch (err) {
+        remarkEl.value = batch.remark || "";
+        showToast(err.message);
+      }
+    };
+    remarkEl.addEventListener("change", saveOnChange);
+  }
+  $("#batchDetailTitle").textContent = `批次详情 · ${escapeHtml(batch.batch_no)}`;
+  $("#batchDetailDialog").showModal();
 }
 
 async function uploadFile(batch, fileType) {
@@ -646,6 +718,7 @@ function bindEvents() {
           project_id: form.get("project_id"),
           batch_no: form.get("batch_no"),
           name: form.get("name"),
+          remark: form.get("remark"),
         },
       });
       $("#batchDialog").close();

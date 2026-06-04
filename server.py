@@ -41,6 +41,7 @@ TEXT_FIELDS = {
     "batch_no": {"manager", "chem"},
     "name": {"manager", "chem"},
     "project_id": {"manager"},
+    "remark": {"manager", "chem"},
 }
 
 FILE_FIELDS = {
@@ -140,6 +141,7 @@ def init_db():
                 project_id INTEGER NOT NULL,
                 batch_no TEXT NOT NULL,
                 name TEXT NOT NULL UNIQUE,
+                remark TEXT,
                 synthesis_submitted_date TEXT,
                 synthesis_completed_date TEXT,
                 bio_test_start_date TEXT,
@@ -177,6 +179,9 @@ def migrate_schema(conn):
     row = conn.execute("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'batches'").fetchone()
     if not row or not row["sql"]:
         return
+    columns = [r["name"] for r in conn.execute("PRAGMA table_info(batches)").fetchall()]
+    if "remark" not in columns:
+        conn.execute("ALTER TABLE batches ADD COLUMN remark TEXT")
     sql = row["sql"]
     if "batch_no TEXT NOT NULL UNIQUE" not in sql and "name TEXT NOT NULL UNIQUE" in sql:
         return
@@ -189,6 +194,7 @@ def migrate_schema(conn):
             project_id INTEGER NOT NULL,
             batch_no TEXT NOT NULL,
             name TEXT NOT NULL UNIQUE,
+            remark TEXT,
             synthesis_submitted_date TEXT,
             synthesis_completed_date TEXT,
             bio_test_start_date TEXT,
@@ -202,9 +208,9 @@ def migrate_schema(conn):
         );
 
         INSERT INTO batches_new
-        (id, project_id, batch_no, name, synthesis_submitted_date, synthesis_completed_date,
+        (id, project_id, batch_no, name, remark, synthesis_submitted_date, synthesis_completed_date,
          bio_test_start_date, bio_test_completed_date, created_by, created_at, updated_at, deleted_at)
-        SELECT id, project_id, batch_no, name, synthesis_submitted_date, synthesis_completed_date,
+        SELECT id, project_id, batch_no, name, remark, synthesis_submitted_date, synthesis_completed_date,
                bio_test_start_date, bio_test_completed_date, created_by, created_at, updated_at, deleted_at
         FROM batches;
 
@@ -362,6 +368,7 @@ def serialize_batch(conn, row):
         "project_name": row["project_name"],
         "batch_no": row["batch_no"],
         "name": row["name"] or "",
+        "remark": row["remark"] or "",
         "synthesis_submitted_date": row["synthesis_submitted_date"],
         "synthesis_completed_date": row["synthesis_completed_date"],
         "bio_test_start_date": row["bio_test_start_date"],
@@ -390,6 +397,7 @@ def serialize_deleted_batch(conn, row):
         "project_deleted_at": row["project_deleted_at"],
         "batch_no": row["batch_no"],
         "name": row["name"] or "",
+        "remark": row["remark"] or "",
         "synthesis_submitted_date": row["synthesis_submitted_date"],
         "synthesis_completed_date": row["synthesis_completed_date"],
         "bio_test_start_date": row["bio_test_start_date"],
@@ -815,6 +823,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         project_id = int(payload.get("project_id") or 0)
         batch_no = clean_text(payload.get("batch_no"), 80)
         name = clean_text(payload.get("name"), 120)
+        remark = clean_text(payload.get("remark"), 1000)
         if not project_id:
             raise RequestError(400, "请选择项目")
         if not batch_no:
@@ -828,10 +837,10 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             cur = conn.execute(
                 """
                 INSERT INTO batches
-                (project_id, batch_no, name, created_by, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?, ?)
+                (project_id, batch_no, name, remark, created_by, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (project_id, batch_no, name, user["id"], now_iso(), now_iso()),
+                (project_id, batch_no, name, remark, user["id"], now_iso(), now_iso()),
             )
             row = get_batch(conn, cur.lastrowid)
             batch = serialize_batch(conn, row)
@@ -851,6 +860,8 @@ class LabFlowHandler(BaseHTTPRequestHandler):
                     raise RequestError(403, f"无权编辑 {field}")
                 if field == "project_id":
                     allowed[field] = int(payload[field])
+                elif field == "remark":
+                    allowed[field] = clean_text(payload[field], 1000)
                 else:
                     allowed[field] = clean_text(payload[field], 120)
         if "batch_no" in allowed and not allowed["batch_no"]:
