@@ -496,6 +496,12 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         file_download_match = re.fullmatch(r"/api/files/(\d+)/download", path)
         if file_download_match and method == "GET":
             return self.download_file(int(file_download_match.group(1)))
+        file_match = re.fullmatch(r"/api/files/(\d+)", path)
+        if file_match and method == "DELETE":
+            return self.delete_file(user, int(file_match.group(1)))
+        file_restore_match = re.fullmatch(r"/api/files/(\d+)/restore", path)
+        if file_restore_match and method == "POST":
+            return self.restore_file(user, int(file_restore_match.group(1)))
         raise RequestError(404, "接口不存在")
 
     def public_user(self, user):
@@ -688,9 +694,41 @@ class LabFlowHandler(BaseHTTPRequestHandler):
                 ORDER BY b.deleted_at DESC, b.id DESC
                 """
             ).fetchall()
+            file_rows = conn.execute(
+                """
+                SELECT fv.*, u.display_name AS uploaded_by_name,
+                       b.name AS batch_name, b.batch_no,
+                       b.deleted_at AS batch_deleted_at,
+                       p.name AS project_name, p.deleted_at AS project_deleted_at
+                FROM file_versions fv
+                JOIN users u ON u.id = fv.uploaded_by
+                JOIN batches b ON b.id = fv.batch_id
+                JOIN projects p ON p.id = b.project_id
+                WHERE fv.deleted_at IS NOT NULL
+                ORDER BY fv.deleted_at DESC, fv.id DESC
+                """
+            ).fetchall()
+            files = []
+            for row in file_rows:
+                files.append({
+                    "id": row["id"],
+                    "file_type": row["file_type"],
+                    "label": FILE_LABELS.get(row["file_type"], row["file_type"]),
+                    "original_name": row["original_name"],
+                    "size_bytes": row["size_bytes"],
+                    "uploaded_by": row["uploaded_by_name"],
+                    "uploaded_at": row["uploaded_at"],
+                    "deleted_at": row["deleted_at"],
+                    "batch_name": row["batch_name"],
+                    "batch_no": row["batch_no"],
+                    "project_name": row["project_name"],
+                    "batch_deleted_at": row["batch_deleted_at"],
+                    "project_deleted_at": row["project_deleted_at"],
+                })
         self.send_json({
             "projects": [serialize_deleted_project(row) for row in project_rows],
             "batches": [serialize_deleted_batch(conn, row) for row in batch_rows],
+            "files": files,
         })
 
     def create_project(self, user):
@@ -947,6 +985,50 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         self.end_headers()
         with path.open("rb") as fh:
             shutil.copyfileobj(fh, self.wfile)
+
+    def delete_file(self, user, file_id):
+        with db() as conn:
+            row = conn.execute(
+                """
+                SELECT fv.*, b.deleted_at AS batch_deleted_at
+                FROM file_versions fv
+                JOIN batches b ON b.id = fv.batch_id
+                WHERE fv.id = ? AND fv.deleted_at IS NULL
+                  AND b.deleted_at IS NULL
+                """,
+                (file_id,),
+            ).fetchone()
+            if not row:
+                raise RequestError(404, "文件不存在或所在批次已删除")
+            if user["role"] != "manager" and user["role"] not in FILE_FIELDS.get(row["file_type"], set()):
+                raise RequestError(403, "无权删除此文件")
+            conn.execute(
+                "UPDATE file_versions SET deleted_at = ? WHERE id = ?",
+                (now_iso(), file_id),
+            )
+        self.send_json({"ok": True})
+
+    def restore_file(self, user, file_id):
+        self.require_manager(user)
+        with db() as conn:
+            row = conn.execute(
+                """
+                SELECT fv.*, b.deleted_at AS batch_deleted_at
+                FROM file_versions fv
+                JOIN batches b ON b.id = fv.batch_id
+                WHERE fv.id = ? AND fv.deleted_at IS NOT NULL
+                """,
+                (file_id,),
+            ).fetchone()
+            if not row:
+                raise RequestError(404, "文件不存在或未被删除")
+            if row["batch_deleted_at"]:
+                raise RequestError(409, "请先恢复批次")
+            conn.execute(
+                "UPDATE file_versions SET deleted_at = NULL WHERE id = ?",
+                (file_id,),
+            )
+        self.send_json({"ok": True})
 
     def serve_static(self, path):
         if path in ("", "/"):

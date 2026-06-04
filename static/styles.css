@@ -420,7 +420,7 @@ select:disabled {
 
 table {
   width: 100%;
-  min-width: 1490px;
+  min-width: 2000px;
   border-collapse: collapse;
 }
 
@@ -498,11 +498,11 @@ td .batch-no-input {
 }
 
 .file-cell {
-  min-width: 170px;
+  min-width: 260px;
 }
 
 .file-name {
-  max-width: 165px;
+  max-width: 260px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
