@@ -247,7 +247,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             """).fetchall()
             batch_rows = conn.execute("""
                 SELECT b.id, b.project_id, p.name AS project_name, p.deleted_at AS project_deleted_at,
-                       b.batch_no, b.name,
+                       b.batch_no, b.name, b.remark,
                        b.synthesis_submitted_date, b.synthesis_completed_date,
                        b.bio_test_start_date, b.bio_test_completed_date,
                        b.created_at, b.updated_at, b.deleted_at
@@ -370,6 +370,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         project_id = int(payload.get("project_id") or 0)
         batch_no = clean_text(payload.get("batch_no"), 80)
         name = clean_text(payload.get("name"), 120)
+        remark = clean_text(payload.get("remark"), 1000)
         if not project_id:
             raise RequestError(400, "请选择项目")
         if not batch_no:
@@ -384,9 +385,9 @@ class LabFlowHandler(BaseHTTPRequestHandler):
                 raise RequestError(404, "项目不存在")
             cur = conn.execute(
                 """INSERT INTO batches
-                   (project_id, batch_no, name, created_by, created_at, updated_at)
-                   VALUES (?, ?, ?, ?, ?, ?)""",
-                (project_id, batch_no, name, user["id"], now_iso(), now_iso()),
+                   (project_id, batch_no, name, remark, created_by, created_at, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                (project_id, batch_no, name, remark, user["id"], now_iso(), now_iso()),
             )
             row = get_batch(conn, cur.lastrowid)
             batch = serialize_batch(conn, row)
@@ -406,6 +407,8 @@ class LabFlowHandler(BaseHTTPRequestHandler):
                     raise RequestError(403, f"无权编辑 {field}")
                 if field == "project_id":
                     allowed[field] = int(payload[field])
+                elif field == "remark":
+                    allowed[field] = clean_text(payload[field], 1000)
                 else:
                     allowed[field] = clean_text(payload[field], 120)
         if "batch_no" in allowed and not allowed["batch_no"]:

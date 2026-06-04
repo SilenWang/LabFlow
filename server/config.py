@@ -26,6 +26,7 @@ TEXT_FIELDS = {
     "batch_no": {"manager", "chem"},
     "name": {"manager", "chem"},
     "project_id": {"manager"},
+    "remark": {"manager", "chem"},
 }
 
 FILE_FIELDS = {
