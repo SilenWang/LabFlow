@@ -48,6 +48,7 @@ FILE_FIELDS = {
     "bio_raw_data": {"manager", "bio"},
     "data_summary": {"manager", "bio"},
     "experiment_record": {"manager", "chem", "bio"},
+    "experiment_summary": {"manager", "chem", "bio"},
 }
 
 FILE_LABELS = {
@@ -55,6 +56,7 @@ FILE_LABELS = {
     "bio_raw_data": "生物原始数据文件",
     "data_summary": "数据整理文档",
     "experiment_record": "试验记录",
+    "experiment_summary": "实验小结",
 }
 
 FILE_EXTENSIONS = {
@@ -62,6 +64,7 @@ FILE_EXTENSIONS = {
     "bio_raw_data": (".xlsx", ".xls", ".xlsm", ".csv"),
     "data_summary": (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".doc", ".docx"),
     "experiment_record": (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".doc", ".docx"),
+    "experiment_summary": (".xlsx", ".xls", ".xlsm", ".csv", ".pdf", ".doc", ".docx"),
 }
 
 
@@ -935,7 +938,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             for part in file_parts:
                 original_name = safe_filename(part["filename"])
                 if not original_name.lower().endswith(allowed_extensions):
-                    if file_type in ("compound_info", "data_summary", "experiment_record"):
+                    if file_type in ("compound_info", "data_summary", "experiment_record", "experiment_summary"):
                         raise RequestError(400, "仅支持 Excel、PDF 或 Word 文件")
                     raise RequestError(400, "仅支持 Excel 或 CSV 文件")
                 content = part["content"]
