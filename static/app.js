@@ -81,6 +81,10 @@ function canUpload(fileType) {
   return filePermissions[fileType]?.includes(state.user?.role);
 }
 
+function canDelete(fileType) {
+  return canUpload(fileType);
+}
+
 function getStatus(batch) {
   if (batch.bio_test_completed_date) return statusMeta[0];
   if (batch.bio_test_start_date) return statusMeta[1];
@@ -278,6 +282,23 @@ function fileCell(batch, fileType) {
       window.location.href = `/api/files/${latest.id}/download`;
     });
     actions.appendChild(download);
+
+    if (canDelete(fileType)) {
+      const del = miniButton("删除");
+      del.classList.add("danger");
+      del.addEventListener("click", async (event) => {
+        event.stopPropagation();
+        if (!confirm(`确认删除 ${latest.original_name}？`)) return;
+        try {
+          await api(`/api/files/${latest.id}`, { method: "DELETE" });
+          await loadData();
+          showToast("文件已删除");
+        } catch (err) {
+          showToast(err.message);
+        }
+      });
+      actions.appendChild(del);
+    }
   }
 
   const history = miniButton(`全部 ${bucket.versions.length}`);
@@ -366,6 +387,22 @@ function openHistory(batch, fileType) {
       window.location.href = `/api/files/${file.id}/download`;
     });
     item.appendChild(btn);
+    if (canDelete(fileType)) {
+      const del = miniButton("删除");
+      del.classList.add("danger");
+      del.addEventListener("click", async () => {
+        if (!confirm(`确认删除 ${file.original_name}？`)) return;
+        try {
+          await api(`/api/files/${file.id}`, { method: "DELETE" });
+          $("#historyDialog").close();
+          await loadData();
+          showToast("文件已删除");
+        } catch (err) {
+          showToast(err.message);
+        }
+      });
+      item.appendChild(del);
+    }
     list.appendChild(item);
   });
   if (bucket.versions.length === 0) {
@@ -763,6 +800,31 @@ function trashFileSummary(files) {
   }).join("；");
 }
 
+  const filesEl = $("#trashFiles");
+  filesEl.innerHTML = "";
+  if (payload.files.length === 0) {
+    filesEl.appendChild(trashEmpty("没有已删除文件"));
+  } else {
+    payload.files.forEach((file) => {
+      const item = document.createElement("div");
+      item.className = "trash-item";
+      const batchState = file.batch_deleted_at ? "所属批次已删除" : "批次可用";
+      item.innerHTML = `
+        <div>
+          <strong>${escapeHtml(file.original_name)} · ${escapeHtml(file.label)}</strong>
+          <span>${escapeHtml(file.project_name)} / ${escapeHtml(file.batch_name)} (${escapeHtml(file.batch_no)}) · ${batchState}</span>
+          <span>上传人：${escapeHtml(file.uploaded_by)} · 上传时间：${shortTime(file.uploaded_at)} · 删除时间：${shortTime(file.deleted_at)} · ${formatSize(file.size_bytes)}</span>
+        </div>
+      `;
+      const btn = miniButton(file.batch_deleted_at ? "先恢复批次" : "恢复文件");
+      btn.disabled = Boolean(file.batch_deleted_at);
+      btn.addEventListener("click", () => restoreFile(file.id));
+      item.appendChild(btn);
+      filesEl.appendChild(item);
+    });
+  }
+}
+
 function trashEmpty(text) {
   const item = document.createElement("div");
   item.className = "empty";
@@ -787,6 +849,17 @@ async function restoreBatch(batchId) {
     await loadData();
     await openTrash();
     showToast("批次已恢复");
+  } catch (err) {
+    showToast(err.message);
+  }
+}
+
+async function restoreFile(fileId) {
+  try {
+    await api(`/api/files/${fileId}/restore`, { method: "POST" });
+    await loadData();
+    await openTrash();
+    showToast("文件已恢复");
   } catch (err) {
     showToast(err.message);
   }
