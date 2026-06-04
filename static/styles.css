@@ -529,6 +529,35 @@ td .batch-no-input {
   background: #f1f5f9;
 }
 
+.name-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.name-cell input {
+  flex: 1;
+  min-width: 0;
+}
+.detail-icon-btn {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: #344054;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-grid;
+  place-items: center;
+}
+.detail-icon-btn:hover {
+  background: #eef2f7;
+  border-color: var(--line);
+}
+
 .danger {
   color: #fff;
   background: var(--red);
