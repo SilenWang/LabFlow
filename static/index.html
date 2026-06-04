@@ -116,7 +116,8 @@
 
   <dialog id="projectDialog">
     <form id="projectForm" method="dialog" class="modal">
-      <h3>新建项目</h3>
+      <h3 id="projectDialogTitle">新建项目</h3>
+      <input name="project_id" type="hidden">
       <label>
         <span>项目名称</span>
         <input name="name" required maxlength="80">

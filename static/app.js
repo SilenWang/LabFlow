@@ -166,6 +166,18 @@ function renderProjects() {
       await loadData();
     });
     row.appendChild(btn);
+    if (state.user.role === "manager") {
+      const renameBtn = document.createElement("button");
+      renameBtn.className = "project-rename-btn";
+      renameBtn.textContent = "✎";
+      renameBtn.title = "重命名项目";
+      renameBtn.type = "button";
+      renameBtn.addEventListener("click", (event) => {
+        event.stopPropagation();
+        openRenameDialog(project);
+      });
+      row.appendChild(renameBtn);
+    }
     list.appendChild(row);
   });
 }
@@ -529,6 +541,13 @@ function replaceBatch(batch) {
   }
 }
 
+function openRenameDialog(project) {
+  $("#projectDialogTitle").textContent = "重命名项目";
+  $("#projectForm").querySelector("[name='name']").value = project.name;
+  $("#projectForm").querySelector("[name='project_id']").value = project.id;
+  $("#projectDialog").showModal();
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -583,20 +602,32 @@ function bindEvents() {
 
   $("#newProjectBtn").addEventListener("click", () => {
     $("#projectForm").reset();
+    $("#projectDialogTitle").textContent = "新建项目";
+    $("#projectForm").querySelector("[name='project_id']").value = "";
     $("#projectDialog").showModal();
   });
 
   $("#projectForm").addEventListener("submit", async (event) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const projectId = form.get("project_id");
+    const name = form.get("name");
     try {
-      await api("/api/projects", {
-        method: "POST",
-        body: { name: form.get("name") },
-      });
+      if (projectId) {
+        await api(`/api/projects/${projectId}`, {
+          method: "PATCH",
+          body: { name },
+        });
+        showToast("项目已重命名");
+      } else {
+        await api("/api/projects", {
+          method: "POST",
+          body: { name },
+        });
+        showToast("项目已创建");
+      }
       $("#projectDialog").close();
       await loadData();
-      showToast("项目已创建");
     } catch (err) {
       showToast(err.message);
     }
