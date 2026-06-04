@@ -11,6 +11,7 @@ const fileLabels = {
   bio_raw_data: "生物原始数据",
   data_summary: "数据整理文档",
   experiment_record: "试验记录",
+  experiment_summary: "实验小结",
 };
 
 const filePermissions = {
@@ -18,6 +19,7 @@ const filePermissions = {
   bio_raw_data: ["manager", "bio"],
   data_summary: ["manager", "bio"],
   experiment_record: ["manager", "chem", "bio"],
+  experiment_summary: ["manager", "chem", "bio"],
 };
 
 const fileAccepts = {
@@ -25,9 +27,10 @@ const fileAccepts = {
   bio_raw_data: ".xlsx,.xls,.xlsm,.csv",
   data_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
   experiment_record: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
+  experiment_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx",
 };
 
-const multiFileTypes = new Set(["compound_info", "data_summary", "experiment_record"]);
+const multiFileTypes = new Set(["compound_info", "data_summary", "experiment_record", "experiment_summary"]);
 
 const statusMeta = [
   { key: "done", label: "已完成", cls: "done" },
@@ -225,6 +228,7 @@ function renderTable() {
       fileCell(batch, "experiment_record"),
       fileCell(batch, "bio_raw_data"),
       fileCell(batch, "data_summary"),
+      fileCell(batch, "experiment_summary"),
       detailCell(batch),
     );
     if (state.user.role === "manager") {
@@ -906,6 +910,7 @@ function trashFileSummary(files) {
     ["experiment_record", "试验记录"],
     ["bio_raw_data", "生物原始数据"],
     ["data_summary", "数据整理"],
+    ["experiment_summary", "实验小结"],
   ];
   return labels.map(([key, label]) => {
     const bucket = files?.[key] || { versions: [] };
