@@ -291,6 +291,37 @@ select:disabled {
   gap: 6px;
 }
 
+.project-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.project-rename-btn {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 4px;
+  display: grid;
+  place-items: center;
+  visibility: hidden;
+}
+
+.project-row:hover .project-rename-btn {
+  visibility: visible;
+}
+
+.project-rename-btn:hover {
+  background: #eef2f7;
+  color: var(--text);
+}
+
 .project-item {
   width: 100%;
   min-height: 36px;
