@@ -8,7 +8,16 @@ version = "0.1.0"
 [tasks]
 start = "python server.py"
 dev = "python server.py"
+test = "pytest tests/ -v"
 
 [dependencies]
 python = ">=3.14.5,<3.15"
 nodejs = ">=26.3.0,<26.4"
+
+[feature.test.pypi-dependencies]
+pytest = "*"
+requests = "*"
+
+[environments]
+test = { features = ["test"], solve-group = "default" }
+default = { solve-group = "default" }
