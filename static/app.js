@@ -436,6 +436,7 @@ function openBatchDetail(batch) {
           body: { remark: remarkEl.value },
         });
         replaceBatch(payload.batch);
+        renderAll();
         showToast("备注已保存");
       } catch (err) {
         remarkEl.value = batch.remark || "";
