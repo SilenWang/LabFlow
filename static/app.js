@@ -219,6 +219,7 @@ function renderTable() {
       textCell(batch.project_name),
       inputCell(batch, "batch_no", "text", canEdit("batch_no"), "batch-no-input"),
       nameCell(batch),
+      remarkCell(batch),
       statusCell(batch),
       inputCell(batch, "synthesis_submitted_date", "date", canEdit("synthesis_submitted_date")),
       inputCell(batch, "synthesis_completed_date", "date", canEdit("synthesis_completed_date")),
@@ -364,13 +365,23 @@ function nameCell(batch) {
       showToast(err.message);
     }
   });
+  td.appendChild(input);
+  return td;
+}
+
+function remarkCell(batch) {
+  const td = document.createElement("td");
+  td.className = "remark-cell";
+  const text = document.createElement("span");
+  text.className = "remark-text";
+  text.textContent = (batch.remark || "").slice(0, 20);
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "detail-icon-btn";
   btn.title = "查看详情";
   btn.textContent = "📄";
   btn.addEventListener("click", () => openBatchDetail(batch));
-  td.append(input, btn);
+  td.append(text, btn);
   return td;
 }
 
