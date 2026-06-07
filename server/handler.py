@@ -597,6 +597,14 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         with file_path.open("rb") as fh:
             shutil.copyfileobj(fh, self.wfile)
 
+    def file_config(self):
+        accepts = {key: ",".join(ext for ext in exts) for key, exts in FILE_EXTENSIONS.items()}
+        self.send_json({
+            "file_accepts": accepts,
+            "file_labels": FILE_LABELS,
+            "file_fields": {key: list(roles) for key, roles in FILE_FIELDS.items()},
+        })
+
     def send_json(self, payload, status=200):
         body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         self.send_response(status)

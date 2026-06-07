@@ -11,6 +11,8 @@ def route_api(handler, method, path, query):
     user = handler.require_user()
     if method == "GET" and path == "/api/me":
         return handler.me(user)
+    if method == "GET" and path == "/api/file-config":
+        return handler.file_config()
     if method == "GET" and path == "/api/users":
         return handler.list_users(user)
     if method == "POST" and path == "/api/change-password":
