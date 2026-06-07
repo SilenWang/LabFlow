@@ -4,6 +4,7 @@ const state = {
   batches: [],
   selectedProjectId: "all",
   view: "table",
+  fileAccepts: {},
 };
 
 const fileLabels = {
@@ -20,14 +21,6 @@ const filePermissions = {
   data_summary: ["manager", "bio"],
   experiment_record: ["manager", "chem", "bio"],
   experiment_summary: ["manager", "chem", "bio"],
-};
-
-const fileAccepts = {
-  compound_info: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx,.ppt,.pptx",
-  bio_raw_data: ".xlsx,.xls,.xlsm,.csv",
-  data_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx,.ppt,.pptx",
-  experiment_record: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx,.ppt,.pptx",
-  experiment_summary: ".xlsx,.xls,.xlsm,.csv,.pdf,.doc,.docx,.ppt,.pptx",
 };
 
 const multiFileTypes = new Set(["compound_info", "data_summary", "experiment_record", "experiment_summary"]);
@@ -113,6 +106,8 @@ async function boot() {
   try {
     const me = await api("/api/me");
     state.user = me.user;
+    const config = await api("/api/file-config");
+    state.fileAccepts = config.file_accepts;
     $("#loginView").classList.add("hidden");
     $("#appView").classList.remove("hidden");
     renderUser();
@@ -452,7 +447,7 @@ function openBatchDetail(batch) {
 async function uploadFile(batch, fileType) {
   const input = document.createElement("input");
   input.type = "file";
-  input.accept = fileAccepts[fileType] || ".xlsx,.xls,.xlsm,.csv";
+  input.accept = state.fileAccepts[fileType] || ".xlsx,.xls,.xlsm,.csv";
   input.multiple = multiFileTypes.has(fileType);
   input.addEventListener("change", async () => {
     if (!input.files?.length) return;
