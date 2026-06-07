@@ -14,10 +14,6 @@ test = "pytest tests/ -v"
 python = ">=3.14.5,<3.15"
 nodejs = ">=26.3.0,<26.4"
 
-[feature.test.pypi-dependencies]
 pytest = "*"
 requests = "*"
 
-[environments]
-test = { features = ["test"], solve-group = "default" }
-default = { solve-group = "default" }
