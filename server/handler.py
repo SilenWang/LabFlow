@@ -51,6 +51,8 @@ class LabFlowHandler(BaseHTTPRequestHandler):
                 self.serve_static(path)
         except RequestError as exc:
             self.send_json({"error": exc.message}, exc.status)
+        except ValueError as exc:
+            self.send_json({"error": str(exc)}, 400)
         except sqlite3.IntegrityError as exc:
             message = "数据已存在或违反唯一性要求"
             if "batches.name" in str(exc):
