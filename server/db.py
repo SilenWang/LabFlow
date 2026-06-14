@@ -1,8 +1,12 @@
 import secrets
 from contextlib import contextmanager
 
-from sqlalchemy import create_engine, event, func, inspect, text
+from sqlalchemy import (
+    Column, Integer, String, ForeignKey, MetaData, Table,
+    create_engine, event, func, inspect, insert, select, text,
+)
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.schema import CreateTable, DropTable
 
 from server.auth import password_hash
 from server.config import DB_PATH
@@ -71,19 +75,10 @@ def migrate_schema():
         with engine.connect() as conn:
             conn.execute(text("ALTER TABLE batches ADD COLUMN remark TEXT"))
             conn.commit()
-    with engine.connect() as conn:
-        sql = next(
-            (
-                row[0]
-                for row in conn.execute(text(
-                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'batches'"
-                )).fetchall()
-            ),
-            None,
-        )
-    if not sql:
-        return
-    if "batch_no TEXT NOT NULL UNIQUE" not in sql and "name TEXT NOT NULL UNIQUE" in sql:
+    unique_constraints = inspector.get_unique_constraints("batches")
+    batch_no_uc = any("batch_no" in uc["column_names"] for uc in unique_constraints)
+    name_uc = any("name" in uc["column_names"] for uc in unique_constraints)
+    if not batch_no_uc and name_uc:
         return
     with session() as s:
         normalize_batch_names(s)
@@ -92,36 +87,31 @@ def migrate_schema():
 
 
 def _recreate_batches_table(engine):
+    temp_meta = MetaData()
+    batches_new = Table(
+        "batches_new", temp_meta,
+        Column("id", Integer, primary_key=True, autoincrement=True),
+        Column("project_id", Integer, ForeignKey("projects.id"), nullable=False),
+        Column("batch_no", String, nullable=False),
+        Column("name", String, nullable=False, unique=True),
+        Column("remark", String, nullable=True),
+        Column("synthesis_submitted_date", String, nullable=True),
+        Column("synthesis_completed_date", String, nullable=True),
+        Column("bio_test_start_date", String, nullable=True),
+        Column("bio_test_completed_date", String, nullable=True),
+        Column("created_by", Integer, ForeignKey("users.id"), nullable=False),
+        Column("created_at", String, nullable=False),
+        Column("updated_at", String, nullable=False),
+        Column("deleted_at", String, nullable=True),
+    )
+    old = Batch.__table__
+    col_names = [c.name for c in batches_new.columns]
+
     with engine.connect() as conn:
         conn.execute(text("PRAGMA foreign_keys = OFF"))
-        conn.execute(text("""
-            CREATE TABLE batches_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                project_id INTEGER NOT NULL,
-                batch_no TEXT NOT NULL,
-                name TEXT NOT NULL UNIQUE,
-                remark TEXT,
-                synthesis_submitted_date TEXT,
-                synthesis_completed_date TEXT,
-                bio_test_start_date TEXT,
-                bio_test_completed_date TEXT,
-                created_by INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                updated_at TEXT NOT NULL,
-                deleted_at TEXT,
-                FOREIGN KEY(project_id) REFERENCES projects(id),
-                FOREIGN KEY(created_by) REFERENCES users(id)
-            )
-        """))
-        conn.execute(text("""
-            INSERT INTO batches_new
-            (id, project_id, batch_no, name, remark, synthesis_submitted_date, synthesis_completed_date,
-             bio_test_start_date, bio_test_completed_date, created_by, created_at, updated_at, deleted_at)
-            SELECT id, project_id, batch_no, name, remark, synthesis_submitted_date, synthesis_completed_date,
-                   bio_test_start_date, bio_test_completed_date, created_by, created_at, updated_at, deleted_at
-            FROM batches
-        """))
-        conn.execute(text("DROP TABLE batches"))
+        conn.execute(CreateTable(batches_new))
+        conn.execute(insert(batches_new).from_select(col_names, select(old)))
+        conn.execute(DropTable(old))
         conn.execute(text("ALTER TABLE batches_new RENAME TO batches"))
         conn.execute(text("PRAGMA foreign_keys = ON"))
         conn.commit()
