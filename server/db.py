@@ -1,43 +1,101 @@
 import secrets
-import sqlite3
+from contextlib import contextmanager
+
+from sqlalchemy import create_engine, event, func, inspect, text
+from sqlalchemy.orm import sessionmaker
 
 from server.auth import password_hash
 from server.config import DB_PATH
+from server.models import Base, User, Project, Batch, FileVersion
 from server.utils import ensure_dirs, now_iso
 
+_engine = None
+_Session = None
 
-def db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+
+def get_engine():
+    global _engine
+    if _engine is None:
+        _engine = create_engine(
+            f"sqlite:///{DB_PATH}",
+            echo=False,
+            connect_args={"check_same_thread": False},
+        )
+
+        @event.listens_for(_engine, "connect")
+        def _set_foreign_keys(dbapi_connection, connection_record):
+            dbapi_connection.execute("PRAGMA foreign_keys = ON")
+    return _engine
+
+
+def make_session():
+    global _Session
+    if _Session is None:
+        _Session = sessionmaker(bind=get_engine(), expire_on_commit=False)
+    return _Session()
+
+
+@contextmanager
+def session():
+    s = make_session()
+    try:
+        yield s
+        s.commit()
+    except Exception:
+        s.rollback()
+        raise
+    finally:
+        s.close()
 
 
 def init_db():
+    global _engine, _Session
+    _engine = None
+    _Session = None
     ensure_dirs()
-    with db() as conn:
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                username TEXT NOT NULL UNIQUE,
-                display_name TEXT NOT NULL,
-                role TEXT NOT NULL,
-                password_salt TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                active INTEGER NOT NULL DEFAULT 1,
-                created_at TEXT NOT NULL
-            );
+    Base.metadata.create_all(get_engine())
+    migrate_schema()
+    with session() as s:
+        count = s.query(User).count()
+        if count == 0:
+            seed_users(s)
 
-            CREATE TABLE IF NOT EXISTS projects (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE,
-                created_by INTEGER NOT NULL,
-                created_at TEXT NOT NULL,
-                deleted_at TEXT,
-                FOREIGN KEY(created_by) REFERENCES users(id)
-            );
 
-            CREATE TABLE IF NOT EXISTS batches (
+def migrate_schema():
+    engine = get_engine()
+    inspector = inspect(engine)
+    if "batches" not in inspector.get_table_names():
+        return
+    columns = [c["name"] for c in inspector.get_columns("batches")]
+    if "remark" not in columns:
+        with engine.connect() as conn:
+            conn.execute(text("ALTER TABLE batches ADD COLUMN remark TEXT"))
+            conn.commit()
+    with engine.connect() as conn:
+        sql = next(
+            (
+                row[0]
+                for row in conn.execute(text(
+                    "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'batches'"
+                )).fetchall()
+            ),
+            None,
+        )
+    if not sql:
+        return
+    if "batch_no TEXT NOT NULL UNIQUE" not in sql and "name TEXT NOT NULL UNIQUE" in sql:
+        return
+    with session() as s:
+        normalize_batch_names(s)
+    engine.dispose()
+    _recreate_batches_table(engine)
+
+
+def _recreate_batches_table(engine):
+    with engine.connect() as conn:
+        conn.execute(text("PRAGMA foreign_keys = OFF"))
+        conn.execute(text("""
+            CREATE TABLE batches_new (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 project_id INTEGER NOT NULL,
                 batch_no TEXT NOT NULL,
@@ -53,94 +111,42 @@ def init_db():
                 deleted_at TEXT,
                 FOREIGN KEY(project_id) REFERENCES projects(id),
                 FOREIGN KEY(created_by) REFERENCES users(id)
-            );
-
-            CREATE TABLE IF NOT EXISTS file_versions (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                batch_id INTEGER NOT NULL,
-                file_type TEXT NOT NULL,
-                original_name TEXT NOT NULL,
-                storage_path TEXT NOT NULL,
-                size_bytes INTEGER NOT NULL,
-                uploaded_by INTEGER NOT NULL,
-                uploaded_at TEXT NOT NULL,
-                deleted_at TEXT,
-                FOREIGN KEY(batch_id) REFERENCES batches(id),
-                FOREIGN KEY(uploaded_by) REFERENCES users(id)
-            );
-        """)
-        migrate_schema(conn)
-        count = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
-        if count == 0:
-            seed_users(conn)
+            )
+        """))
+        conn.execute(text("""
+            INSERT INTO batches_new
+            (id, project_id, batch_no, name, remark, synthesis_submitted_date, synthesis_completed_date,
+             bio_test_start_date, bio_test_completed_date, created_by, created_at, updated_at, deleted_at)
+            SELECT id, project_id, batch_no, name, remark, synthesis_submitted_date, synthesis_completed_date,
+                   bio_test_start_date, bio_test_completed_date, created_by, created_at, updated_at, deleted_at
+            FROM batches
+        """))
+        conn.execute(text("DROP TABLE batches"))
+        conn.execute(text("ALTER TABLE batches_new RENAME TO batches"))
+        conn.execute(text("PRAGMA foreign_keys = ON"))
+        conn.commit()
 
 
-def migrate_schema(conn):
-    row = conn.execute(
-        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'batches'"
-    ).fetchone()
-    if not row or not row["sql"]:
-        return
-    columns = [r["name"] for r in conn.execute("PRAGMA table_info(batches)").fetchall()]
-    if "remark" not in columns:
-        conn.execute("ALTER TABLE batches ADD COLUMN remark TEXT")
-    sql = row["sql"]
-    if "batch_no TEXT NOT NULL UNIQUE" not in sql and "name TEXT NOT NULL UNIQUE" in sql:
-        return
-    normalize_batch_names(conn)
-    conn.execute("PRAGMA foreign_keys = OFF")
-    conn.executescript("""
-        CREATE TABLE batches_new (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            project_id INTEGER NOT NULL,
-            batch_no TEXT NOT NULL,
-            name TEXT NOT NULL UNIQUE,
-            remark TEXT,
-            synthesis_submitted_date TEXT,
-            synthesis_completed_date TEXT,
-            bio_test_start_date TEXT,
-            bio_test_completed_date TEXT,
-            created_by INTEGER NOT NULL,
-            created_at TEXT NOT NULL,
-            updated_at TEXT NOT NULL,
-            deleted_at TEXT,
-            FOREIGN KEY(project_id) REFERENCES projects(id),
-            FOREIGN KEY(created_by) REFERENCES users(id)
-        );
-
-        INSERT INTO batches_new
-        (id, project_id, batch_no, name, remark, synthesis_submitted_date, synthesis_completed_date,
-         bio_test_start_date, bio_test_completed_date, created_by, created_at, updated_at, deleted_at)
-        SELECT id, project_id, batch_no, name, remark, synthesis_submitted_date, synthesis_completed_date,
-               bio_test_start_date, bio_test_completed_date, created_by, created_at, updated_at, deleted_at
-        FROM batches;
-
-        DROP TABLE batches;
-        ALTER TABLE batches_new RENAME TO batches;
-    """)
-    conn.execute("PRAGMA foreign_keys = ON")
-
-
-def normalize_batch_names(conn):
-    rows = conn.execute("SELECT id, batch_no, name FROM batches ORDER BY id").fetchall()
+def normalize_batch_names(s):
+    batches = s.query(Batch).order_by(Batch.id).all()
     used = set()
-    for row in rows:
-        base = (row["name"] or "").strip()
+    for b in batches:
+        base = (b.name or "").strip()
         if not base:
-            base = (row["batch_no"] or "").strip() or f"Batch-{row['id']}"
+            base = (b.batch_no or "").strip() or f"Batch-{b.id}"
         if len(base) > 110:
             base = base[:110].strip()
         candidate = base
         if candidate in used:
-            candidate = f"{base}-{row['id']}"
+            candidate = f"{base}-{b.id}"
         while candidate in used:
             candidate = f"{base}-{secrets.token_hex(2)}"
         used.add(candidate)
-        if candidate != row["name"]:
-            conn.execute("UPDATE batches SET name = ? WHERE id = ?", (candidate, row["id"]))
+        if candidate != b.name:
+            b.name = candidate
 
 
-def seed_users(conn):
+def seed_users(s):
     defaults = [
         ("leader", "总负责人", "manager", "labflow123"),
         ("chem1", "化学 1", "chem", "chem123"),
@@ -154,8 +160,12 @@ def seed_users(conn):
     ]
     for username, display_name, role, password in defaults:
         salt, digest = password_hash(password)
-        conn.execute(
-            """INSERT INTO users (username, display_name, role, password_salt, password_hash, created_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
-            (username, display_name, role, salt, digest, now_iso()),
-        )
+        s.add(User(
+            username=username,
+            display_name=display_name,
+            role=role,
+            password_salt=salt,
+            password_hash=digest,
+            active=1,
+            created_at=now_iso(),
+        ))
