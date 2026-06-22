@@ -544,8 +544,6 @@ function renderGantt() {
   const monthBoundaries = markers.map((m) => m.left).filter((left) => left > 0 && left < 100);
   scale.innerHTML = `<span></span><div class="scale-track">${markers.map((marker) => (
     `<span class="month-marker" style="left:${marker.left}%">${marker.label}</span>`
-  )).join("")}${monthBoundaries.map((left) => (
-    `<span class="month-line" style="left:${left}%"></span>`
   )).join("")}</div>`;
   grid.appendChild(scale);
 
