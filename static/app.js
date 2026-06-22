@@ -610,18 +610,11 @@ function dateText(date) {
 
 function subMonthGridLines(min, max, totalDays) {
   const lines = [];
-  let monthStart = new Date(min.getFullYear(), min.getMonth(), 1);
-  while (monthStart < max) {
-    const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
-    const monthDays = daysBetween(monthStart, monthEnd);
-    for (let i = 1; i <= 3; i++) {
-      const offset = Math.round(monthDays * i / 4);
-      const pos = new Date(monthStart.getFullYear(), monthStart.getMonth(), offset);
-      if (pos > min && pos < max) {
-        lines.push(percent(daysBetween(min, pos), totalDays));
-      }
-    }
-    monthStart = monthEnd;
+  let cursor = new Date(min);
+  cursor.setDate(cursor.getDate() + 7);
+  while (cursor < max) {
+    lines.push(percent(daysBetween(min, cursor), totalDays));
+    cursor.setDate(cursor.getDate() + 7);
   }
   return lines;
 }
