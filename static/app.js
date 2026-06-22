@@ -543,10 +543,13 @@ function renderGantt() {
   const markers = monthMarkers(min, max, totalDays);
   scale.innerHTML = `<span></span><div class="scale-track">${markers.map((marker) => (
     `<span class="month-marker" style="left:${marker.left}%">${marker.label}</span>`
+  )).join("")}${monthBoundaries.map((left) => (
+    `<span class="month-line" style="left:${left}%"></span>`
   )).join("")}</div>`;
   grid.appendChild(scale);
 
   const gridLinePositions = subMonthGridLines(min, max, totalDays);
+  const monthBoundaries = markers.map((m) => m.left).filter((left) => left > 0 && left < 100);
 
   state.batches.forEach((batch) => {
     const row = document.createElement("div");
@@ -560,6 +563,12 @@ function renderGantt() {
     gridLinePositions.forEach((left) => {
       const line = document.createElement("div");
       line.className = "grid-line";
+      line.style.left = `${left}%`;
+      timeline.appendChild(line);
+    });
+    monthBoundaries.forEach((left) => {
+      const line = document.createElement("div");
+      line.className = "month-line";
       line.style.left = `${left}%`;
       timeline.appendChild(line);
     });

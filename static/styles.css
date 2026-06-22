@@ -636,6 +636,14 @@ td .batch-no-input {
   background: #e6ebf2;
 }
 
+.month-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #22c55e;
+}
+
 .bar {
   position: absolute;
   top: 7px;
