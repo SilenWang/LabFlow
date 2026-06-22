@@ -546,6 +546,8 @@ function renderGantt() {
   )).join("")}</div>`;
   grid.appendChild(scale);
 
+  const gridLinePositions = subMonthGridLines(min, max, totalDays);
+
   state.batches.forEach((batch) => {
     const row = document.createElement("div");
     row.className = "gantt-row";
@@ -555,6 +557,12 @@ function renderGantt() {
     label.innerHTML = `<strong>${escapeHtml(batch.batch_no)}</strong><span>${escapeHtml(batch.project_name)} · ${meta.label}</span>`;
     const timeline = document.createElement("div");
     timeline.className = "timeline";
+    gridLinePositions.forEach((left) => {
+      const line = document.createElement("div");
+      line.className = "grid-line";
+      line.style.left = `${left}%`;
+      timeline.appendChild(line);
+    });
     addBar(timeline, min, totalDays, batch.synthesis_submitted_date, batch.synthesis_completed_date, "synthesis");
     addBar(timeline, min, totalDays, batch.bio_test_start_date, batch.bio_test_completed_date, "testing");
     const today = document.createElement("div");
@@ -598,6 +606,24 @@ function daysBetween(a, b) {
 
 function dateText(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function subMonthGridLines(min, max, totalDays) {
+  const lines = [];
+  let monthStart = new Date(min.getFullYear(), min.getMonth(), 1);
+  while (monthStart < max) {
+    const monthEnd = new Date(monthStart.getFullYear(), monthStart.getMonth() + 1, 1);
+    const monthDays = daysBetween(monthStart, monthEnd);
+    for (let i = 1; i <= 3; i++) {
+      const offset = Math.round(monthDays * i / 4);
+      const pos = new Date(monthStart.getFullYear(), monthStart.getMonth(), offset);
+      if (pos > min && pos < max) {
+        lines.push(percent(daysBetween(min, pos), totalDays));
+      }
+    }
+    monthStart = monthEnd;
+  }
+  return lines;
 }
 
 function monthMarkers(min, max, totalDays) {
