@@ -541,10 +541,13 @@ function renderGantt() {
   const scale = document.createElement("div");
   scale.className = "gantt-scale";
   const markers = monthMarkers(min, max, totalDays);
+  const monthBoundaries = markers.map((m) => m.left).filter((left) => left > 0 && left < 100);
   scale.innerHTML = `<span></span><div class="scale-track">${markers.map((marker) => (
     `<span class="month-marker" style="left:${marker.left}%">${marker.label}</span>`
   )).join("")}</div>`;
   grid.appendChild(scale);
+
+  const gridLinePositions = subMonthGridLines(min, max, totalDays);
 
   state.batches.forEach((batch) => {
     const row = document.createElement("div");
@@ -555,6 +558,18 @@ function renderGantt() {
     label.innerHTML = `<strong>${escapeHtml(batch.batch_no)}</strong><span>${escapeHtml(batch.project_name)} · ${meta.label}</span>`;
     const timeline = document.createElement("div");
     timeline.className = "timeline";
+    gridLinePositions.forEach((left) => {
+      const line = document.createElement("div");
+      line.className = "grid-line";
+      line.style.left = `${left}%`;
+      timeline.appendChild(line);
+    });
+    monthBoundaries.forEach((left) => {
+      const line = document.createElement("div");
+      line.className = "month-line";
+      line.style.left = `${left}%`;
+      timeline.appendChild(line);
+    });
     addBar(timeline, min, totalDays, batch.synthesis_submitted_date, batch.synthesis_completed_date, "synthesis");
     addBar(timeline, min, totalDays, batch.bio_test_start_date, batch.bio_test_completed_date, "testing");
     const today = document.createElement("div");
@@ -598,6 +613,17 @@ function daysBetween(a, b) {
 
 function dateText(date) {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+}
+
+function subMonthGridLines(min, max, totalDays) {
+  const lines = [];
+  let cursor = new Date(min);
+  cursor.setDate(cursor.getDate() + 7);
+  while (cursor < max) {
+    lines.push(percent(daysBetween(min, cursor), totalDays));
+    cursor.setDate(cursor.getDate() + 7);
+  }
+  return lines;
 }
 
 function monthMarkers(min, max, totalDays) {

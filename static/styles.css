@@ -623,15 +623,25 @@ td .batch-no-input {
 .timeline {
   position: relative;
   height: 34px;
-  background: repeating-linear-gradient(
-    to right,
-    #f4f6f9,
-    #f4f6f9 58px,
-    #e6ebf2 59px,
-    #f4f6f9 60px
-  );
+  background: #f4f6f9;
   border: 1px solid var(--line);
   border-radius: 6px;
+}
+
+.grid-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #e6ebf2;
+}
+
+.month-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: #22c55e;
 }
 
 .bar {
