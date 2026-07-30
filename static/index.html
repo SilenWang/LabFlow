@@ -4,7 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>LabFlow</title>
-  <link rel="stylesheet" href="/styles.css?v=11">
+  <base href="__BASE_PATH__/">
+  <link rel="stylesheet" href="styles.css?v=11">
 </head>
 <body>
   <main id="loginView" class="login-shell hidden">
@@ -221,7 +222,8 @@
     </div>
   </dialog>
 
+  <script>window.LABFLOW_BASE_PATH = "__BASE_PATH__";</script>
   <div id="toast" class="toast hidden"></div>
-  <script src="/app.js?v=11"></script>
+  <script src="app.js?v=11"></script>
 </body>
 </html>

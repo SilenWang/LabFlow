@@ -13,7 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from server.auth import read_signed, verify_password, password_hash, sign_payload
 from server.config import ROLES, DATE_FIELDS, TEXT_FIELDS, FILE_FIELDS, FILE_LABELS, FILE_EXTENSIONS
-from server.config import STATIC_DIR, UPLOAD_DIR, BASE_DIR
+from server.config import STATIC_DIR, UPLOAD_DIR, BASE_DIR, BASE_PATH
 from server.db import session as db_session
 from server.exceptions import RequestError
 from server.models import User, Project, Batch, FileVersion
@@ -48,6 +48,8 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         try:
             parsed = urlparse(self.path)
             path = unquote(parsed.path)
+            if BASE_PATH and path.startswith(BASE_PATH):
+                path = path[len(BASE_PATH):] or "/"
             if path.startswith("/api/"):
                 route_api(self, method, path, parse_qs(parsed.query))
             else:
@@ -180,13 +182,15 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
-        self.send_header("Set-Cookie", f"labflow_session={token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=604800")
+        cookie_path = BASE_PATH or "/"
+        self.send_header("Set-Cookie", f"labflow_session={token}; HttpOnly; SameSite=Lax; Path={cookie_path}; Max-Age=604800")
         self.end_headers()
         self.wfile.write(body)
 
     def logout(self):
         self.send_response(204)
-        self.send_header("Set-Cookie", "labflow_session=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0")
+        cookie_path = BASE_PATH or "/"
+        self.send_header("Set-Cookie", f"labflow_session=; HttpOnly; SameSite=Lax; Path={cookie_path}; Max-Age=0")
         self.end_headers()
 
     def list_users(self, user):
@@ -602,13 +606,23 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         if not file_path.exists() or not file_path.is_file():
             file_path = STATIC_DIR / "index.html"
         mime = mimetypes.guess_type(str(file_path))[0] or "application/octet-stream"
-        self.send_response(200)
-        self.send_header("Content-Type", f"{mime}; charset=utf-8" if mime.startswith("text/") else mime)
-        self.send_header("Content-Length", str(file_path.stat().st_size))
-        self.send_header("Cache-Control", "no-store")
-        self.end_headers()
-        with file_path.open("rb") as fh:
-            shutil.copyfileobj(fh, self.wfile)
+        if file_path.name == "index.html":
+            content = file_path.read_bytes()
+            content = content.replace(b"__BASE_PATH__", (BASE_PATH or "").encode())
+            self.send_response(200)
+            self.send_header("Content-Type", f"{mime}; charset=utf-8" if mime.startswith("text/") else mime)
+            self.send_header("Content-Length", str(len(content)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            self.wfile.write(content)
+        else:
+            self.send_response(200)
+            self.send_header("Content-Type", f"{mime}; charset=utf-8" if mime.startswith("text/") else mime)
+            self.send_header("Content-Length", str(file_path.stat().st_size))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            with file_path.open("rb") as fh:
+                shutil.copyfileobj(fh, self.wfile)
 
     def file_config(self):
         accepts = {key: ",".join(ext for ext in exts) for key, exts in FILE_EXTENSIONS.items()}

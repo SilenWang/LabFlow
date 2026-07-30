@@ -8,6 +8,7 @@ DB_PATH = DATA_DIR / "labflow.db"
 SECRET_PATH = DATA_DIR / "secret.key"
 HOST = "0.0.0.0"
 PORT = int(__import__("os").environ.get("LABFLOW_PORT", "8080"))
+BASE_PATH = (__import__("os").environ.get("LABFLOW_BASE_PATH") or "").rstrip("/")
 
 ROLES = {
     "manager": "总负责人",
