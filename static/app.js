@@ -698,7 +698,9 @@ function bindEvents() {
 
   $("#logoutBtn").addEventListener("click", async () => {
     await api("/api/logout", { method: "POST" });
-    location.reload();
+    state.user = null;
+    $("#loginView").classList.remove("hidden");
+    $("#appView").classList.add("hidden");
   });
 
   $("#refreshBtn").addEventListener("click", async () => {
