@@ -7,7 +7,7 @@ version = "0.1.0"
 
 [tasks]
 start = "python server.py"
-enable = { cmd = "bash start.sh", env = { LABFLOW_BASE_PATH = "labflow" }}
+enable = { cmd = "bash start.sh", env = { LABFLOW_BASE_PATH = "/labflow" }}
 dev = "python server.py"
 test = "python -m pytest tests/ -v"
 
