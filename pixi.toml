@@ -7,6 +7,7 @@ version = "0.1.0"
 
 [tasks]
 start = "python server.py"
+enable = "bash start.sh"
 dev = "python server.py"
 test = "python -m pytest tests/ -v"
 
