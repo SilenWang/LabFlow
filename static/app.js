@@ -1,3 +1,5 @@
+const BASE_PATH = window.LABFLOW_BASE_PATH || "";
+
 const state = {
   user: null,
   projects: [],
@@ -50,7 +52,8 @@ async function api(path, options = {}) {
     headers["Content-Type"] = "application/json";
     init.body = JSON.stringify(options.body);
   }
-  const res = await fetch(path, init);
+  const url = path.startsWith("/") ? BASE_PATH + path : path;
+  const res = await fetch(url, init);
   if (res.status === 204) return null;
   const contentType = res.headers.get("content-type") || "";
   const payload = contentType.includes("application/json") ? await res.json() : await res.text();
@@ -291,7 +294,7 @@ function fileCell(batch, fileType) {
   if (latest) {
     const download = miniButton(bucket.versions.length > 1 ? "下载最新" : "下载");
     download.addEventListener("click", () => {
-      window.location.href = `/api/files/${latest.id}/download`;
+      window.location.href = BASE_PATH + `/api/files/${latest.id}/download`;
     });
     actions.appendChild(download);
   }
@@ -487,7 +490,7 @@ function openHistory(batch, fileType) {
     btnGroup.className = "file-actions";
     const btn = miniButton("下载");
     btn.addEventListener("click", () => {
-      window.location.href = `/api/files/${file.id}/download`;
+      window.location.href = BASE_PATH + `/api/files/${file.id}/download`;
     });
     btnGroup.appendChild(btn);
     if (canDelete(fileType)) {
