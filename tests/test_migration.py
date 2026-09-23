@@ -4,7 +4,6 @@
 dry-run 不落盘，以及迁移后两套后端的 API 响应完全相同。
 """
 
-import gc
 import json
 import socket
 import sqlite3
@@ -326,10 +325,9 @@ class TestApiParityAfterMigration:
         finally:
             server.shutdown()
             server.server_close()
-            # list_trash 里 serialize_deleted_batch 跑在 with db_session() 之外，
-            # 那次查询会在已关闭的 session 上重新借一条连接，要等 GC 才还池。
-            # seekdb 一关，池里做 reset 就会打到死连接上，所以先收干净再切后端。
-            gc.collect()
+            # /api/trash 曾因 serialize_deleted_batch 跑在 with db_session() 之外
+            # 泄漏连接（要等 GC 才还池）；已修复，这里不再需要 gc.collect()，
+            # 直接断言池里没有借出未还的连接，顺带守住这个回归。
             assert db_mod._engine.pool.checkedout() == 0
             # 切回 sqlite 收尾：init_db() 会先 dispose seekdb 引擎再关实例。
             monkeypatch.setattr(db_mod, "DB_BACKEND", "sqlite")

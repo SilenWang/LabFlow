@@ -1,5 +1,20 @@
 import pytest
 
+from server import db as db_mod
+
+
+class TestTrashConnectionLeak:
+    def test_list_trash_does_not_leak_connections(self, server_url, leader_session, project, batch):
+        # 造出回收站数据，确保 list_trash 真的会走 serialize_deleted_batch -> latest_files
+        assert leader_session.delete(f"{server_url}/api/batches/{batch['id']}").status_code == 200
+        baseline = db_mod._engine.pool.checkedout()
+        for _ in range(5):
+            r = leader_session.get(f"{server_url}/api/trash")
+            assert r.status_code == 200
+            assert any(b["id"] == batch["id"] for b in r.json()["batches"])
+        # 连接必须在请求内归还，不能等到 GC
+        assert db_mod._engine.pool.checkedout() == baseline
+
 
 class TestTrash:
     def test_list_trash_empty(self, server_url, leader_session):

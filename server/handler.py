@@ -348,11 +348,15 @@ class LabFlowHandler(BaseHTTPRequestHandler):
                     "batch_deleted_at": row.batch_deleted_at,
                     "project_deleted_at": row.project_deleted_at,
                 })
-        self.send_json({
-            "projects": [serialize_deleted_project(row) for row in project_rows],
-            "batches": [serialize_deleted_batch(s, row) for row in batch_rows],
-            "files": files,
-        })
+
+            # 序列化必须在会话内完成：serialize_deleted_batch -> latest_files
+            # 会再查一次库，放到 with 之外就会在已关闭的 session 上重新借连接。
+            trash = {
+                "projects": [serialize_deleted_project(row) for row in project_rows],
+                "batches": [serialize_deleted_batch(s, row) for row in batch_rows],
+                "files": files,
+            }
+        self.send_json(trash)
 
     def create_project(self, user):
         self.require_manager(user)
