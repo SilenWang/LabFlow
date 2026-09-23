@@ -197,6 +197,164 @@ class TestMigrateRerun:
         assert _run(tmp_path / "nope.db", target) == mig.EXIT_USAGE
 
 
+def _col(nullable=False, default=None, extra=""):
+    """``SHOW COLUMNS`` 里一列的元信息，只取预检用得到的字段。"""
+    return {"nullable": nullable, "default": default, "extra": extra}
+
+
+class TestColumnPreflight:
+    """列集合预检是纯函数，不依赖 seekdb。"""
+
+    def test_source_extra_column_is_rejected(self):
+        # 源库比模型多一列 → INSERT 会撞 1054，预检必须先拦下。
+        target = {"id": _col(extra="auto_increment"), "username": _col()}
+        problems = mig.column_problems(["id", "username", "legacy_note"], target)
+        assert len(problems) == 1
+        assert "legacy_note" in problems[0]
+
+    def test_target_extra_nullable_column_is_allowed(self):
+        # 旧 sqlite 库还没补上 batches.remark：目标多出的可空列不该挡住迁移。
+        target = {"id": _col(extra="auto_increment"), "remark": _col(nullable=True)}
+        assert mig.column_problems(["id"], target) == []
+
+    def test_target_extra_column_with_default_is_allowed(self):
+        target = {"id": _col(extra="auto_increment"), "active": _col(default="1")}
+        assert mig.column_problems(["id"], target) == []
+
+    def test_target_extra_required_column_is_rejected(self):
+        # 目标新增必填列而源库无数据 → 1364，同样是写不进去。
+        target = {"id": _col(extra="auto_increment"), "must": _col()}
+        problems = mig.column_problems(["id"], target)
+        assert len(problems) == 1
+        assert "must" in problems[0]
+
+    def test_matching_columns_have_no_problems(self):
+        target = {"id": _col(extra="auto_increment"), "name": _col()}
+        assert mig.column_problems(["id", "name"], target) == []
+
+
+class TestMigrateSchemaDrift:
+    """源库存在模型里已经没有的历史列（结构漂移）时的收口行为。"""
+
+    def test_extra_source_column_exits_2_without_writing(
+        self, tmp_path, seekdb_available, capsys
+    ):
+        src = tmp_path / "labflow.db"
+        _sqlite_source(src)
+        conn = sqlite3.connect(src)
+        conn.execute("ALTER TABLE users ADD COLUMN legacy_note TEXT")
+        conn.execute("UPDATE users SET legacy_note = '历史遗留备注'")
+        conn.commit()
+        conn.close()
+
+        target = tmp_path / "seekdb"
+        assert _run(src, target) == mig.EXIT_USAGE
+
+        err = capsys.readouterr().err
+        assert "legacy_note" in err
+        assert "Traceback" not in err
+
+        # 没有半成品：4 张表都是空的，重跑不会被「目标库非空」挡下。
+        conn = _open_target(target)
+        try:
+            assert {t: mig.target_count(conn, t) for t in mig.TABLE_ORDER} == {
+                t: 0 for t in mig.TABLE_ORDER
+            }
+        finally:
+            _close_target(conn)
+
+        # 源库对齐后直接重跑即可，不需要人工清库。
+        conn = sqlite3.connect(src)
+        conn.execute("ALTER TABLE users DROP COLUMN legacy_note")
+        conn.commit()
+        conn.close()
+        assert _run(src, target) == mig.EXIT_OK
+
+        conn = _open_target(target)
+        try:
+            assert mig.target_count(conn, "users") == 3
+        finally:
+            _close_target(conn)
+
+    def test_source_missing_optional_column_still_migrates(
+        self, tmp_path, seekdb_available
+    ):
+        # 反向漂移：旧 sqlite 库少了可空的 batches.remark，仍应正常搬运。
+        src = tmp_path / "labflow.db"
+        _sqlite_source(src)
+        conn = sqlite3.connect(src)
+        conn.execute("ALTER TABLE batches DROP COLUMN remark")
+        conn.commit()
+        conn.close()
+
+        target = tmp_path / "seekdb"
+        assert _run(src, target) == mig.EXIT_OK
+
+        conn = _open_target(target)
+        try:
+            columns, rows = mig.read_sqlite_table(src, "batches")
+            assert len(mig.target_rows(conn, "batches", columns)) == len(rows)
+        finally:
+            _close_target(conn)
+
+
+class TestMigrateWriteFailure:
+    """写入中途失败（不是结构漂移）时同样不能留半成品。"""
+
+    def test_write_failure_leaves_target_empty_and_rerunnable(
+        self, tmp_path, seekdb_available, capsys
+    ):
+        src = tmp_path / "labflow.db"
+        _sqlite_source(src)
+        # batches 是第 3 张表：users / projects 已经写进去之后才会失败。
+        conn = sqlite3.connect(src)
+        conn.execute("UPDATE batches SET name = ? WHERE id = 1", ("超长" * 100,))
+        conn.commit()
+        conn.close()
+
+        target = tmp_path / "seekdb"
+        assert _run(src, target) == mig.EXIT_USAGE
+
+        err = capsys.readouterr().err
+        assert "Traceback" not in err
+
+        conn = _open_target(target)
+        try:
+            assert {t: mig.target_count(conn, t) for t in mig.TABLE_ORDER} == {
+                t: 0 for t in mig.TABLE_ORDER
+            }
+        finally:
+            _close_target(conn)
+
+        # 数据修好后直接重跑，不需要人工清库。
+        conn = sqlite3.connect(src)
+        conn.execute("UPDATE batches SET name = ? WHERE id = 1", ("批次-001",))
+        conn.commit()
+        conn.close()
+        assert _run(src, target) == mig.EXIT_OK
+
+    def test_foreign_key_failure_also_cleans_up(self, tmp_path, seekdb_available):
+        """非 DataError 的写入失败（外键悬空）走兜底分支，同样不留半成品。"""
+        src = tmp_path / "labflow.db"
+        _sqlite_source(src)
+        # sqlite 默认不开外键，悬空引用能存进源库，搬到 seekdb 时才会被拒。
+        conn = sqlite3.connect(src)
+        conn.execute("UPDATE batches SET project_id = 999 WHERE id = 1")
+        conn.commit()
+        conn.close()
+
+        target = tmp_path / "seekdb"
+        assert _run(src, target) == mig.EXIT_USAGE
+
+        conn = _open_target(target)
+        try:
+            assert {t: mig.target_count(conn, t) for t in mig.TABLE_ORDER} == {
+                t: 0 for t in mig.TABLE_ORDER
+            }
+        finally:
+            _close_target(conn)
+
+
 def _free_port():
     with socket.socket() as s:
         s.bind(("127.0.0.1", 0))
