@@ -59,10 +59,13 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self.send_json({"error": str(exc)}, 400)
         except IntegrityError as exc:
+            # sqlite 的报错带表名（projects.name），MySQL/seekdb 只给唯一键名，
+            # 因此再按触发语句里的表名兜底判断。
+            detail = str(exc)
             message = "数据已存在或违反唯一性要求"
-            if "batches.name" in str(exc):
+            if "batches.name" in detail or "INSERT INTO batches" in detail:
                 message = "批次名称已存在，批次名称必须全系统唯一（包括回收站）"
-            if "projects.name" in str(exc):
+            if "projects.name" in detail or "INSERT INTO projects" in detail:
                 message = "项目名称已存在"
             self.send_json({"error": message}, 409)
         except Exception as exc:
