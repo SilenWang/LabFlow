@@ -1,3 +1,4 @@
+import signal
 from http.server import ThreadingHTTPServer
 
 from server.config import HOST, PORT
@@ -5,7 +6,14 @@ from server.db import init_db
 from server.handler import LabFlowHandler
 
 
+def _stop(signum, frame):
+    # systemd stop 发的是 SIGTERM，默认会直接终止进程、跳过 atexit，
+    # 这里转成正常退出，让 seekdb 实例和它的子进程被干净地释放。
+    raise SystemExit(0)
+
+
 def main():
+    signal.signal(signal.SIGTERM, _stop)
     init_db()
     server = ThreadingHTTPServer((HOST, PORT), LabFlowHandler)
     print(f"LabFlow 已启动: http://127.0.0.1:{PORT}")

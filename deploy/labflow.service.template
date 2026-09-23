@@ -1,0 +1,21 @@
+# LabFlow systemd 单元模板。由 deploy/install-service.sh 渲染后安装到
+# /etc/systemd/system/labflow.service。占位符不要手改。
+[Unit]
+Description=LabFlow 批次协同服务
+Documentation=file://__LABFLOW_DIR__/docs/运维手册.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=__LABFLOW_USER__
+WorkingDirectory=__LABFLOW_DIR__
+ExecStart=__PIXI__ run serve
+Restart=on-failure
+RestartSec=2
+# 停止时先给进程组 SIGTERM（服务会释放 seekdb 实例），超时再强杀
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=multi-user.target
