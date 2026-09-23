@@ -5,6 +5,8 @@
 - 读用 stdlib ``sqlite3``，写用 ``pymysql``，不引入新依赖。
 - 逐表单事务；显式带上 id，保留自增主键。
 - 目标任一表非空即拒绝执行，避免二次导入写脏。
+- 写入前先比对源/目标列集合：源库带模型里已移除的历史列（结构漂移）时直接以
+  退出码 2 中止，目标库不落任何半成品，重跑不会被「目标库非空」挡住。
 - 迁移完成后逐表比对行数与内容校验和。
 
 用法::
@@ -13,7 +15,8 @@
     pixi run migrate-seekdb -- --sqlite data/labflow.db --seekdb-dir data/seekdb
     pixi run migrate-seekdb -- --dry-run
 
-退出码：0 成功；1 校验不一致；2 预检失败；3 目标库非空被拒绝。
+退出码：0 成功；1 校验不一致；2 预检失败（含源库结构漂移、目标库拒收写入）；
+3 目标库非空被拒绝。
 """
 
 import argparse
@@ -105,10 +108,60 @@ def read_source(sqlite_path):
     return source
 
 
-def target_columns(conn, table):
+def target_column_info(conn, table):
+    """目标表的列元信息（保持 ``SHOW COLUMNS`` 的顺序）。"""
     with conn.cursor() as cur:
         cur.execute(f"SHOW COLUMNS FROM `{table}`")
-        return [row[0] for row in cur.fetchall()]
+        return {
+            row[0]: {
+                "nullable": row[2] == "YES",
+                "default": row[4],
+                "extra": row[5] or "",
+            }
+            for row in cur.fetchall()
+        }
+
+
+def target_columns(conn, table):
+    return list(target_column_info(conn, table))
+
+
+def column_problems(source_columns, target_info):
+    """比对单表的源列与目标列元信息，返回问题描述列表（空列表＝可以搬）。
+
+    - 源库有、目标库没有：``INSERT`` 会撞 pymysql 1054，因为模型里已移除该历史列。
+    - 目标库有、源库没有：源库拿不出这一列的数据，只有该列能留空时才允许（例如
+      旧 sqlite 库还没补上 ``batches.remark``）。
+    """
+    missing = [c for c in source_columns if c not in target_info]
+    if missing:
+        return [f"目标库缺少源库列 {', '.join(missing)}（模型里已移除的历史列）"]
+
+    source_set = set(source_columns)
+    required = [
+        c
+        for c, meta in target_info.items()
+        if c not in source_set
+        and not meta["nullable"]
+        and meta["default"] is None
+        and "auto_increment" not in meta["extra"]
+    ]
+    if required:
+        return [f"目标库新增必填列 {', '.join(required)}，源库无对应数据"]
+    return []
+
+
+def check_source_columns(conn, source):
+    """写入前的结构漂移预检：列不一致就直接中止，目标库一行都不写。"""
+    drift = []
+    for table in TABLE_ORDER:
+        problems = column_problems(source[table][0], target_column_info(conn, table))
+        drift.extend(f"{table}: {p}" for p in problems)
+    if drift:
+        raise MigrationError(
+            "源库与目标表结构不一致（疑似结构漂移），已中止且未写入: "
+            + "; ".join(drift)
+        )
 
 
 def target_count(conn, table):
@@ -138,6 +191,30 @@ def assert_target_empty(conn):
             filled.append((table, count))
     if filled:
         raise TargetNotEmpty(filled)
+
+
+def discard_partial(conn, tables):
+    """清空本次已写入的表，让目标库回到空库状态。
+
+    只在写入中途失败时调用；此时目标库原本是空的（``assert_target_empty`` 过了），
+    所以删掉的都是本次刚写进去的行，重跑不会被退出码 3 挡住。
+    """
+    if not tables:
+        return
+    try:
+        for table in reversed(tables):
+            with conn.cursor() as cur:
+                cur.execute(f"DELETE FROM `{table}`")
+        conn.commit()
+    except Exception as exc:  # pragma: no cover - 目标库已经不健康时才会走到
+        conn.rollback()
+        print(
+            f"[警告] 半成品清理失败，请手动清空目标库: {exc}", file=sys.stderr
+        )
+        return
+    print(
+        f"[回滚] 已清空本次写入的表: {', '.join(reversed(tables))}", file=sys.stderr
+    )
 
 
 def insert_table(conn, table, columns, rows):
@@ -252,10 +329,19 @@ def migrate(sqlite_path, seekdb_dir, database=SEEKDB_DATABASE, dry_run=False):
         )
         try:
             assert_target_empty(conn)
-            for table in TABLE_ORDER:
-                columns, rows = source[table]
-                insert_table(conn, table, columns, rows)
-                print(f"  已写入 {table}: {len(rows)} 行")
+            # 结构漂移在写第一行之前就拦下：列不一致直接退出码 2，目标库保持空。
+            check_source_columns(conn, source)
+            written = []
+            try:
+                for table in TABLE_ORDER:
+                    columns, rows = source[table]
+                    insert_table(conn, table, columns, rows)
+                    written.append(table)
+                    print(f"  已写入 {table}: {len(rows)} 行")
+            except Exception:
+                # 写了一半也不能留半成品：清掉本次写入的行，重跑不再被退出码 3 挡住。
+                discard_partial(conn, written)
+                raise
             report = [
                 verify_table(conn, table, *source[table]) for table in TABLE_ORDER
             ]
@@ -310,6 +396,16 @@ def main(argv=None):
     except pymysql.err.DataError as exc:
         print(f"[失败] 目标库拒收数据: {exc}", file=sys.stderr)
         print("常见原因：值超出目标列长（models 里的 String 长度需要放宽）。", file=sys.stderr)
+        return EXIT_USAGE
+    except pymysql.MySQLError as exc:
+        # 兜底：写入阶段的其他 MySQL 错误（含 1054 未知列）一律按预检失败收口，
+        # 不再带 traceback 以退出码 1（那是「校验不一致」的语义）结束。
+        print(f"[失败] 目标库写入失败: {exc}", file=sys.stderr)
+        print(
+            "常见原因：源库结构漂移（模型里已移除的历史列）、外键悬空或值超长；"
+            "本次写入已回滚，目标库保持空库。",
+            file=sys.stderr,
+        )
         return EXIT_USAGE
 
 
