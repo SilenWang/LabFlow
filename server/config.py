@@ -23,6 +23,20 @@ DATE_FIELDS = {
     "bio_test_completed_date": {"manager", "bio"},
 }
 
+# 文本上限：models 里的 VARCHAR 长度与 handler 的输入校验共用同一份，
+# 避免两边漂移（例如输入放宽到 120 而列还停在 80）导致 seekdb 下报 1406。
+TEXT_MAX_LENGTH = {
+    "username": 60,
+    "display_name": 60,
+    "project_name": 80,
+    "batch_no": 80,
+    "name": 120,  # 批次名称
+    "remark": 1000,
+}
+
+# 上传文件名上限（落库列 original_name 为 VARCHAR(255)，storage_path 还要再拼前缀）。
+FILENAME_MAX_LENGTH = 200
+
 TEXT_FIELDS = {
     "batch_no": {"manager", "chem"},
     "name": {"manager", "chem"},

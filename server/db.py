@@ -4,8 +4,7 @@ import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import String, create_engine, event, inspect, text
-from sqlalchemy.ext.compiler import compiles
+from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from server.auth import password_hash
@@ -18,17 +17,8 @@ _Session = None
 _seekdb_instance = None
 
 # sqlite 为默认后端，便于回滚；LABFLOW_DB=seekdb 切到嵌入式 seekdb。
+# 列长必须显式写在 models 里：seekdb 走 MySQL 协议，裸 VARCHAR 会被直接拒。
 DB_BACKEND = os.environ.get("LABFLOW_DB", "sqlite").strip().lower()
-
-
-@compiles(String, "mysql")
-def _mysql_string(element, compiler, **kw):
-    # seekdb 走 MySQL 协议：裸 VARCHAR（未指定长度）会被拒，而 TEXT 又不能建索引
-    # （unique 列会报 "storage engine can't index"）。未指定长度的 String 按 MySQL
-    # 惯例落成 VARCHAR(255)，这样不必改动 models 里的列定义。
-    if element.length is None:
-        return "VARCHAR(255)"
-    return compiler.visit_VARCHAR(element, **kw)
 
 
 def _seekdb_dir():
