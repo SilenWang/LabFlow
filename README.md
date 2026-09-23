@@ -4,71 +4,46 @@ LabFlow 是一个局域网实验室批次协同工具，用于管理化学合成
 
 ## 启动
 
-在服务器电脑上双击：
+宿主是 Linux 服务器，由 systemd 托管，开机自启。常用命令：
+
+```bash
+sudo pixi run service-install   # 首次部署 / 更新：安装服务并开机自启
+systemctl status labflow        # 查看状态
+sudo systemctl restart labflow  # 重启
+```
+
+调试时可前台运行：
+
+```bash
+pixi run serve
+```
+
+首次部署、备份、回滚的完整步骤见：
+
+[docs/运维手册.md](docs/运维手册.md)
+
+## 访问地址
+
+服务监听 `0.0.0.0:9002`，端口在 `deploy/labflow.env` 中配置。
 
 ```text
-启动LabFlow.bat
+服务器本机：http://127.0.0.1:9002
+局域网其他电脑：http://服务器电脑IP:9002
 ```
 
-## 开机自启动
+查服务器 IP：
 
-当前电脑已配置 Windows 登录后自动后台启动 LabFlow。自启动文件位于：
-
-```text
-C:\Users\31588\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\LabFlow_AutoStart.vbs
+```bash
+hostname -I
 ```
 
-它会调用：
+取第一个地址即可，形如 `192.168.x.x`。换网络后 IP 会变，用 `hostname -I` 重新看一下，
+把新地址发给同事。如果其他电脑打不开，检查服务器防火墙是否放行了 TCP `9002`：
 
-```text
-start_labflow_background.py
+```bash
+sudo ufw allow 9002/tcp        # 使用 ufw 的发行版
+sudo firewall-cmd --add-port=9002/tcp --permanent && sudo firewall-cmd --reload   # 使用 firewalld 的发行版
 ```
-
-该脚本会先检查 `127.0.0.1:8080` 是否已经有服务在运行，避免重复启动。
-
-如需取消自启动，删除启动文件夹里的 `LabFlow_AutoStart.vbs` 即可。
-
-启动后，服务器电脑本机可访问：
-
-```text
-http://127.0.0.1:8080
-```
-
-同一办公室局域网内其他电脑访问：
-
-```text
-http://服务器电脑IP:8080
-```
-
-当前服务器电脑局域网地址是：
-
-```text
-http://172.16.1.71:8080
-```
-
-如果服务器电脑切换到了另一个网络，例如 B 网络，IP 地址会变化。切换网络后双击：
-
-```text
-查看LabFlow访问地址.bat
-```
-
-它会自动确认 LabFlow 是否启动，并显示当前网络下可访问的地址。把属于 B 网络的地址发给同事即可。
-
-如果其他电脑打不开，请在服务器电脑上右键点击：
-
-```text
-开放LabFlow局域网访问.bat
-```
-
-选择“以管理员身份运行”。该脚本会放行 Windows 防火墙的 TCP 8080 端口。
-
-查看服务器电脑 IP：
-
-```powershell
-ipconfig
-```
-
-通常找 `IPv4 地址`，形如 `192.168.x.x`。
 
 ## 默认账号
 
@@ -100,10 +75,12 @@ ipconfig
 
 ## 数据位置
 
-- 数据库：`data/labflow.db`
+- 数据库（seekdb）：`data/seekdb/`
+- 数据库（sqlite 回滚点）：`data/labflow.db`
 - 上传文件：`uploads/`
+- 备份产物：`backups/`
 
-建议定期备份整个 LabFlow 文件夹，至少备份 `data` 和 `uploads`。
+备份用 `pixi run backup`，不要只靠手抄文件夹。见 [docs/运维手册.md](docs/运维手册.md)。
 
 ## 删除与恢复
 
@@ -120,9 +97,9 @@ ipconfig
 - 批次编号可以重复。
 - 批次名称不能为空，且必须全系统唯一。
 
-## Windows 防火墙
+## 防火墙
 
-如果其他电脑打不开页面，需要在服务器电脑 Windows 防火墙中允许 Python 在专用网络通信，或开放 TCP 端口 `8080`。
+如果其他电脑打不开页面，确认服务器防火墙放行了 TCP `9002`（见上方“访问地址”）。
 
 ## 状态规则
 

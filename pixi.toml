@@ -7,9 +7,14 @@ version = "0.1.0"
 
 [tasks]
 start = "python server.py"
-enable = { cmd = "bash start.sh", env = { LABFLOW_BASE_PATH = "/labflow" }}
+serve = "bash deploy/run.sh"
 dev = "python server.py"
 test = "python -m pytest tests/ -v"
+service-install = "bash deploy/install-service.sh"
+service-uninstall = "bash deploy/uninstall-service.sh"
+backup = "bash deploy/backup.sh"
+restore = "bash deploy/restore.sh"
+rollback-sqlite = "bash deploy/rollback-to-sqlite.sh"
 
 [dependencies]
 python = ">=3.14.5,<3.15"
@@ -20,4 +25,3 @@ pytest = "*"
 requests = "*"
 sqlalchemy = "*"
 pyseekdb = ">=1.1.0.post2, <2"
-
