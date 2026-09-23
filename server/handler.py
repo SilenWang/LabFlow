@@ -13,6 +13,7 @@ from sqlalchemy.exc import IntegrityError
 
 from server.auth import read_signed, verify_password, password_hash, sign_payload
 from server.config import ROLES, DATE_FIELDS, TEXT_FIELDS, FILE_FIELDS, FILE_LABELS, FILE_EXTENSIONS
+from server.config import TEXT_MAX_LENGTH, FILENAME_MAX_LENGTH
 from server.config import STATIC_DIR, UPLOAD_DIR, BASE_DIR, BASE_PATH
 from server.db import session as db_session
 from server.exceptions import RequestError
@@ -24,6 +25,38 @@ from server.serializers import (
 )
 from server.utils import now_iso, today_token, quote_bytes
 from server.validators import safe_filename, assert_date, clean_text
+
+
+# 唯一约束冲突 -> 面向用户的文案。sqlite 报 "UNIQUE constraint failed: 表.列"，
+# MySQL/seekdb 报错误码 1062 + 索引名，两边都收敛到同一条文案。
+UNIQUE_CONFLICT_MESSAGES = {
+    "batches.name": "批次名称已存在，批次名称必须全系统唯一（包括回收站）",
+    "projects.name": "项目名称已存在",
+}
+
+# seekdb 的 1062 只给索引名，映射回 sqlite 的“表.列”写法后共用上面的文案。
+UNIQUE_INDEX_TO_KEY = {
+    "uq_batches_name": "batches.name",
+    "uq_projects_name": "projects.name",
+    "uq_users_username": "users.username",
+}
+
+
+def unique_conflict_message(exc):
+    orig = getattr(exc, "orig", None)
+    args = getattr(orig, "args", None) or ()
+    if args and args[0] == 1062:
+        detail = str(args[-1])
+        for index, key in UNIQUE_INDEX_TO_KEY.items():
+            if index in detail:
+                detail = key
+                break
+    else:
+        detail = str(exc)
+    for key, message in UNIQUE_CONFLICT_MESSAGES.items():
+        if key in detail:
+            return message
+    return "数据已存在或违反唯一性要求"
 
 
 class LabFlowHandler(BaseHTTPRequestHandler):
@@ -59,15 +92,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         except ValueError as exc:
             self.send_json({"error": str(exc)}, 400)
         except IntegrityError as exc:
-            # sqlite 的报错带表名（projects.name），MySQL/seekdb 只给唯一键名，
-            # 因此再按触发语句里的表名兜底判断。
-            detail = str(exc)
-            message = "数据已存在或违反唯一性要求"
-            if "batches.name" in detail or "INSERT INTO batches" in detail:
-                message = "批次名称已存在，批次名称必须全系统唯一（包括回收站）"
-            if "projects.name" in detail or "INSERT INTO projects" in detail:
-                message = "项目名称已存在"
-            self.send_json({"error": message}, 409)
+            self.send_json({"error": unique_conflict_message(exc)}, 409)
         except Exception as exc:
             self.log_message("ERROR %s", exc)
             self.send_json({"error": "服务器内部错误"}, 500)
@@ -169,7 +194,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
 
     def login(self):
         payload = self.read_json()
-        username = clean_text(payload.get("username"), 60)
+        username = clean_text(payload.get("username"), TEXT_MAX_LENGTH["username"])
         password = str(payload.get("password") or "")
         with db_session() as s:
             user = s.query(User).filter(
@@ -332,7 +357,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
     def create_project(self, user):
         self.require_manager(user)
         payload = self.read_json()
-        name = clean_text(payload.get("name"), 80)
+        name = clean_text(payload.get("name"), TEXT_MAX_LENGTH["project_name"])
         if not name:
             raise RequestError(400, "项目名称不能为空")
         with db_session() as s:
@@ -344,7 +369,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
     def update_project(self, user, project_id):
         self.require_manager(user)
         payload = self.read_json()
-        name = clean_text(payload.get("name"), 80)
+        name = clean_text(payload.get("name"), TEXT_MAX_LENGTH["project_name"])
         if not name:
             raise RequestError(400, "项目名称不能为空")
         with db_session() as s:
@@ -400,9 +425,9 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         self.require_batch_creator(user)
         payload = self.read_json()
         project_id = int(payload.get("project_id") or 0)
-        batch_no = clean_text(payload.get("batch_no"), 80)
-        name = clean_text(payload.get("name"), 120)
-        remark = clean_text(payload.get("remark"), 1000)
+        batch_no = clean_text(payload.get("batch_no"), TEXT_MAX_LENGTH["batch_no"])
+        name = clean_text(payload.get("name"), TEXT_MAX_LENGTH["name"])
+        remark = clean_text(payload.get("remark"), TEXT_MAX_LENGTH["remark"])
         if not project_id:
             raise RequestError(400, "请选择项目")
         if not batch_no:
@@ -444,10 +469,8 @@ class LabFlowHandler(BaseHTTPRequestHandler):
                     raise RequestError(403, f"无权编辑 {field}")
                 if field == "project_id":
                     allowed[field] = int(payload[field])
-                elif field == "remark":
-                    allowed[field] = clean_text(payload[field], 1000)
                 else:
-                    allowed[field] = clean_text(payload[field], 120)
+                    allowed[field] = clean_text(payload[field], TEXT_MAX_LENGTH[field])
         if "batch_no" in allowed and not allowed["batch_no"]:
             raise RequestError(400, "批次编号不能为空")
         if "name" in allowed and not allowed["name"]:
@@ -522,6 +545,8 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             uploaded_at = now_iso()
             for part in file_parts:
                 original_name = safe_filename(part["filename"])
+                if len(original_name) > FILENAME_MAX_LENGTH:
+                    raise RequestError(400, f"文件名不能超过 {FILENAME_MAX_LENGTH} 个字符")
                 if not original_name.lower().endswith(allowed_extensions):
                     if file_type in ("compound_info", "data_summary", "experiment_record", "experiment_summary"):
                         raise RequestError(400, "仅支持 Excel、PDF、Word 或 PPT 文件")
