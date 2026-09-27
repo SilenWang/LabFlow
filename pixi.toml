@@ -20,6 +20,7 @@ service-uninstall = "bash deploy/uninstall-service.sh"
 backup = "bash deploy/backup.sh"
 restore = "bash deploy/restore.sh"
 rollback-sqlite = "bash deploy/rollback-to-sqlite.sh"
+dl0-spike = "python spikes/dl0_ducklake_models.py 2>&1 | tee spikes/logs/dl0-ducklake.log"
 
 [dependencies]
 python = ">=3.14.5,<3.15"

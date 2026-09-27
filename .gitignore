@@ -12,3 +12,4 @@ __pycache__/
 !.pixi/config.toml
 .tmp/
 !spikes/duckdb_lock/logs/*.log
+!spikes/logs/*.log
