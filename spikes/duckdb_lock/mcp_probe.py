@@ -133,6 +133,9 @@ def main() -> int:
     parser.add_argument("--label", default="")
     parser.add_argument("--timeout", type=float, default=20.0)
     parser.add_argument("--post-probe-db", default=None, help="查询结束后、MCP 进程仍存活时，用另一个进程试开这个文件")
+    parser.add_argument("--fd-check", default=None, help="查询结束后检查 MCP 进程是否还握着这个库文件的 fd")
+    parser.add_argument("--hold-ms", type=int, default=0, help="查询结束后保持进程存活的时间")
+    parser.add_argument("--queries", type=int, default=1, help="同一会话里连续发多少次 execute_query")
     args = parser.parse_args()
 
     binary = shutil.which("mcp-server-motherduck")
@@ -198,21 +201,52 @@ def main() -> int:
             if not tool_name:
                 ok = False
 
-            t = time.perf_counter()
-            client.send(
-                {
-                    "jsonrpc": "2.0",
-                    "id": 3,
-                    "method": "tools/call",
-                    "params": {"name": tool_name, "arguments": {"sql": args.sql}},
-                }
-            )
-            reply = client.wait_for(3, args.timeout)
-            log("mcp_tool_call_query", ms=round((time.perf_counter() - t) * 1000, 1), **summarize(reply))
-            if "timeout" in reply or "exited" in reply or "error" in reply:
+            session_ok = 0
+            for index in range(1, args.queries + 1):
+                t = time.perf_counter()
+                client.send(
+                    {
+                        "jsonrpc": "2.0",
+                        "id": 2 + index,
+                        "method": "tools/call",
+                        "params": {"name": tool_name, "arguments": {"sql": args.sql}},
+                    }
+                )
+                reply = client.wait_for(2 + index, args.timeout)
+                call_ok = not ("timeout" in reply or "exited" in reply or "error" in reply)
+                if call_ok and isinstance(reply.get("result"), dict) and reply["result"].get("isError"):
+                    call_ok = False
+                session_ok += int(call_ok)
+                log(
+                    "mcp_tool_call_query",
+                    query=index,
+                    of=args.queries,
+                    ok=call_ok,
+                    ms=round((time.perf_counter() - t) * 1000, 1),
+                    **summarize(reply),
+                )
+            log("mcp_session_summary", ok_calls=session_ok, total_calls=args.queries)
+            if session_ok != args.queries:
                 ok = False
-            elif isinstance(reply.get("result"), dict) and reply["result"].get("isError"):
-                ok = False
+
+            if args.fd_check:
+                db_name = os.path.basename(args.fd_check)
+                matches = []
+                fd_dir = Path(f"/proc/{client.proc.pid}/fd")
+                try:
+                    for fd in fd_dir.iterdir():
+                        try:
+                            target = os.readlink(fd)
+                        except OSError:
+                            continue
+                        if db_name in target:
+                            matches.append(f"{fd.name} -> {target}")
+                except FileNotFoundError:
+                    matches = ["<no /proc entry>"]
+                log("mcp_fd_check", db=args.fd_check, fd_open=bool(matches), matches=matches)
+
+            if args.hold_ms:
+                time.sleep(args.hold_ms / 1000)
 
             if args.post_probe_db:
                 probe = subprocess.run(
