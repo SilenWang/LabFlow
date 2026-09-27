@@ -74,3 +74,23 @@ class TestCaseSensitiveUniqueNames:
             "project_id": project["id"], "batch_no": "CASE-C", "name": "Batch-001",
         })
         assert r.status_code == 409
+
+
+class TestAppAssignedIds:
+    """DuckLake 的 id 由应用层计数器给（没有 DB 唯一约束兜底），这里盯住它不重号。"""
+
+    def test_created_rows_get_distinct_ids(self, server_url, leader_session):
+        project_ids = [
+            leader_session.post(f"{server_url}/api/projects", json={"name": f"ID-项目-{i}"}).json()["project"]["id"]
+            for i in range(3)
+        ]
+        batch_ids = [
+            leader_session.post(f"{server_url}/api/batches", json={
+                "project_id": pid, "batch_no": f"ID-B{i}", "name": f"ID-批次-{i}",
+            }).json()["batch"]["id"]
+            for i, pid in enumerate(project_ids)
+        ]
+        assert all(i > 0 for i in project_ids + batch_ids)
+        # id 是每张表各自的序列，所以按表判重
+        assert len(set(project_ids)) == len(project_ids)
+        assert len(set(batch_ids)) == len(batch_ids)

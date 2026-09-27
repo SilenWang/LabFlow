@@ -21,12 +21,12 @@ from server import migrate_sqlite_to_seekdb as mig
 from server.handler import LabFlowHandler
 from server.models import Base
 
-# 本模块验的是 sqlite → seekdb 迁移脚本本身（D3 才做 seekdb → duckdb），与 LABFLOW_DB 无关，
-# 但它要按 models 建一个 sqlite 源库；LABFLOW_DB=duckdb 时 models 的主键是按 duckdb 分支
-# 定义的（Sequence + nextval），sqlite 方言编不出来。整模块跳过，避免误报。
+# 本模块验的是 sqlite → seekdb 迁移脚本（D3 才做 seekdb → DuckLake）。脚本的目标表是用
+# models 建的，主键写法按当前后端分支：LABFLOW_DB=ducklake 下目标表没有自增，
+# 「迁移后新插入续上 id」这条验收项不成立。整模块跳过，D3 重写脚本时一并处理。
 pytestmark = pytest.mark.skipif(
-    db_mod.DB_BACKEND == "duckdb",
-    reason="迁移脚本是 sqlite→seekdb 路径，duckdb 后端下 models 定义不出 sqlite 源库",
+    db_mod.DB_BACKEND == "ducklake",
+    reason="迁移脚本是 sqlite→seekdb 路径，ducklake 后端下目标表的自增写法不同",
 )
 
 

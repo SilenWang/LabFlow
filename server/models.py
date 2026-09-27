@@ -1,4 +1,4 @@
-from sqlalchemy import Column, ForeignKey, Integer, Sequence, String, UniqueConstraint
+from sqlalchemy import Column, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 
 from server.config import DB_BACKEND, TEXT_MAX_LENGTH
@@ -7,12 +7,12 @@ Base = declarative_base()
 
 
 def _pk(table):
-    # 自增主键没有三后端通用的写法（见 docs/决策记录-数据库路线切换.md）：
-    # duckdb 既没有 SERIAL 也没有 GENERATED ... AS IDENTITY，只有 DEFAULT nextval('seq')；
-    # sqlite 的 INTEGER PRIMARY KEY 与 MySQL 的 AUTO_INCREMENT 由 autoincrement=True 表达。
-    if DB_BACKEND == "duckdb":
-        seq = Sequence(f"{table}_id_seq")
-        return Column(Integer, seq, primary_key=True, server_default=seq.next_value())
+    # 自增主键没有三后端通用的写法：sqlite 的 INTEGER PRIMARY KEY 与 MySQL 的 AUTO_INCREMENT
+    # 都由 autoincrement=True 表达；DuckLake 则两个都没有——它不支持 sequence（连
+    # CREATE SEQUENCE 都拒），PK/UNIQUE/FK 也建不了，所以 id 只能交给应用层分配
+    # （db.py 的 before_insert + 辅助 SQLite 计数器）。实测见 docs/DL0-DuckLake模型层核实.md。
+    if DB_BACKEND == "ducklake":
+        return Column(Integer, primary_key=True, autoincrement=False)
     return Column(Integer, primary_key=True, autoincrement=True)
 
 

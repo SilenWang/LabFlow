@@ -12,7 +12,7 @@ from sqlalchemy import desc as sql_desc, func as sql_func
 from sqlalchemy.exc import IntegrityError
 
 from server.auth import read_signed, verify_password, password_hash, sign_payload
-from server.config import ROLES, DATE_FIELDS, TEXT_FIELDS, FILE_FIELDS, FILE_LABELS, FILE_EXTENSIONS
+from server.config import DB_BACKEND, ROLES, DATE_FIELDS, TEXT_FIELDS, FILE_FIELDS, FILE_LABELS, FILE_EXTENSIONS
 from server.config import TEXT_MAX_LENGTH, FILENAME_MAX_LENGTH
 from server.config import STATIC_DIR, UPLOAD_DIR, BASE_DIR, BASE_PATH
 from server.db import session as db_session
@@ -41,36 +41,37 @@ UNIQUE_INDEX_TO_KEY = {
     "uq_users_username": "users.username",
 }
 
-# duckdb 的冲突文案里**没有表名**，只有列名：
-# `Duplicate key "name: xxx" violates unique constraint.`，
-# 所以表名得从触发语句里取，再拼回 sqlite 的“表.列”键。
-DUCKDB_STATEMENT_TABLE = re.compile(r"\b(?:INSERT\s+INTO|UPDATE)\s+\"?([a-z_][a-z0-9_]*)\"?", re.I)
-DUCKDB_MESSAGE_COLUMN = re.compile(r'Duplicate key "([^":]+):', re.I)
-
-
 def unique_conflict_message(exc):
     orig = getattr(exc, "orig", None)
     args = getattr(orig, "args", None) or ()
-    detail = None
     if args and args[0] == 1062:
         detail = str(args[-1])
         for index, key in UNIQUE_INDEX_TO_KEY.items():
             if index in detail:
                 detail = key
                 break
-    if detail is None:
+    else:
         detail = str(exc)
-        # 缺表名的后端（duckdb）用触发语句补上，恢复成 "表.列"。
-        if "violates unique constraint" in detail:
-            stmt = getattr(exc, "statement", None) or detail
-            table = DUCKDB_STATEMENT_TABLE.search(stmt)
-            column = DUCKDB_MESSAGE_COLUMN.search(detail)
-            if table and column:
-                detail = f"{table.group(1)}.{column.group(1)}"
     for key, message in UNIQUE_CONFLICT_MESSAGES.items():
         if key in detail:
             return message
     return "数据已存在或违反唯一性要求"
+
+
+def assert_name_unique(session, model, name, key, exclude_id=None):
+    """DuckLake 没有唯一约束（DL0 实测），全系统唯一只能在写之前自己查一遍。
+
+    其它后端有 DB 唯一约束兜底，这里直接放过去，保持行为与改动面不变。
+    ponytail: 查与写之间有窗口，没有 DB 兜底；要硬保证得把唯一键放进辅助 SQLite
+    文件（双写、无跨库事务），代价见 docs/DL0-DuckLake模型层核实.md。
+    """
+    if DB_BACKEND != "ducklake":
+        return
+    query = session.query(model.id).filter(model.name == name)
+    if exclude_id is not None:
+        query = query.filter(model.id != exclude_id)
+    if query.first() is not None:
+        raise RequestError(409, UNIQUE_CONFLICT_MESSAGES[key])
 
 
 class LabFlowHandler(BaseHTTPRequestHandler):
@@ -379,6 +380,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
         if not name:
             raise RequestError(400, "项目名称不能为空")
         with db_session() as s:
+            assert_name_unique(s, Project, name, "projects.name")
             project = Project(name=name, created_by=user.id, created_at=now_iso())
             s.add(project)
             s.flush()
@@ -396,6 +398,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             ).first()
             if not project:
                 raise RequestError(404, "项目不存在")
+            assert_name_unique(s, Project, name, "projects.name", exclude_id=project_id)
             project.name = name
         self.send_json({"ok": True})
 
@@ -423,7 +426,10 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             if not project:
                 raise RequestError(404, "回收站中没有这个项目")
             project.deleted_at = None
-            self.send_json({"project": serialize_project(project)})
+            payload = {"project": serialize_project(project)}
+        # 响应必须在会话提交之后发：提前发（原实现）会让紧接着的下一个请求
+        # 读到还没提交的状态，DuckLake 的提交更慢，这条竞态在它上面必现。
+        self.send_json(payload)
 
     def list_batches(self, query):
         project_id = (query.get("project_id") or [None])[0]
@@ -458,6 +464,7 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             ).first()
             if not project:
                 raise RequestError(404, "项目不存在")
+            assert_name_unique(s, Batch, name, "batches.name")
             new_batch = Batch(
                 project_id=project_id,
                 batch_no=batch_no,
@@ -508,6 +515,8 @@ class LabFlowHandler(BaseHTTPRequestHandler):
             ).first()
             if not batch:
                 raise RequestError(404, "批次不存在")
+            if "name" in allowed:
+                assert_name_unique(s, Batch, allowed["name"], "batches.name", exclude_id=batch_id)
             for key, value in allowed.items():
                 setattr(batch, key, value)
             row = get_batch(s, batch_id)

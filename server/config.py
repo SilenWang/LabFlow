@@ -11,7 +11,7 @@ HOST = "0.0.0.0"
 PORT = int(__import__("os").environ.get("LABFLOW_PORT", "9002"))
 BASE_PATH = (__import__("os").environ.get("LABFLOW_BASE_PATH") or "").rstrip("/")
 
-# 存储后端：sqlite（默认，便于回滚）/ seekdb / duckdb。
+# 存储后端：sqlite（默认，便于回滚）/ seekdb / ducklake（DuckLake + SQLite catalog）。
 # 放在 config 里供 db.py 与 models.py 共用：两者都要按后端分支（引擎参数 / 主键定义）。
 DB_BACKEND = os.environ.get("LABFLOW_DB", "sqlite").strip().lower()
 
