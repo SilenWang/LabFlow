@@ -41,18 +41,32 @@ UNIQUE_INDEX_TO_KEY = {
     "uq_users_username": "users.username",
 }
 
+# duckdb 的冲突文案里**没有表名**，只有列名：
+# `Duplicate key "name: xxx" violates unique constraint.`，
+# 所以表名得从触发语句里取，再拼回 sqlite 的“表.列”键。
+DUCKDB_STATEMENT_TABLE = re.compile(r"\b(?:INSERT\s+INTO|UPDATE)\s+\"?([a-z_][a-z0-9_]*)\"?", re.I)
+DUCKDB_MESSAGE_COLUMN = re.compile(r'Duplicate key "([^":]+):', re.I)
+
 
 def unique_conflict_message(exc):
     orig = getattr(exc, "orig", None)
     args = getattr(orig, "args", None) or ()
+    detail = None
     if args and args[0] == 1062:
         detail = str(args[-1])
         for index, key in UNIQUE_INDEX_TO_KEY.items():
             if index in detail:
                 detail = key
                 break
-    else:
+    if detail is None:
         detail = str(exc)
+        # 缺表名的后端（duckdb）用触发语句补上，恢复成 "表.列"。
+        if "violates unique constraint" in detail:
+            stmt = getattr(exc, "statement", None) or detail
+            table = DUCKDB_STATEMENT_TABLE.search(stmt)
+            column = DUCKDB_MESSAGE_COLUMN.search(detail)
+            if table and column:
+                detail = f"{table.group(1)}.{column.group(1)}"
     for key, message in UNIQUE_CONFLICT_MESSAGES.items():
         if key in detail:
             return message

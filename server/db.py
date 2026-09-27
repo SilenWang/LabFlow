@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker
 
 from server.auth import password_hash
-from server.config import DB_PATH
+from server.config import DB_BACKEND, DB_PATH
 from server.models import Base, User
 from server.utils import ensure_dirs, now_iso
 
@@ -16,10 +16,9 @@ _engine = None
 _Session = None
 _seekdb_instance = None
 
-# sqlite 为默认后端，便于回滚；LABFLOW_DB=seekdb 切到嵌入式 seekdb。
+# DB_BACKEND 定义在 config.py（models.py 也要用来选主键写法），这里沿用同名。
+# sqlite 为默认后端，便于回滚；LABFLOW_DB=seekdb|duckdb 切到对应后端。
 # 列长必须显式写在 models 里：seekdb 走 MySQL 协议，裸 VARCHAR 会被直接拒。
-DB_BACKEND = os.environ.get("LABFLOW_DB", "sqlite").strip().lower()
-
 
 SEEKDB_DATABASE = "labflow"
 
@@ -27,6 +26,11 @@ SEEKDB_DATABASE = "labflow"
 def _seekdb_dir():
     # 跟着 DB_PATH 走，测试里按用例切换临时目录时自动隔离。
     return Path(DB_PATH).parent / "seekdb"
+
+
+def _duckdb_path():
+    # 同理跟着 DB_PATH 走；sqlite 用 data/labflow.db，duckdb 用 data/labflow.duckdb。
+    return Path(DB_PATH).with_suffix(".duckdb")
 
 
 def open_seekdb(db_dir=None, database=SEEKDB_DATABASE):
@@ -88,6 +92,8 @@ def get_engine():
                 echo=False,
                 connect_args={**opts, "charset": "utf8mb4"},
             )
+        elif DB_BACKEND == "duckdb":
+            _engine = create_engine(f"duckdb:///{_duckdb_path()}", echo=False)
         else:
             _engine = create_engine(
                 f"sqlite:///{DB_PATH}",
