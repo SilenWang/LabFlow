@@ -1,0 +1,133 @@
+✨ Pixi task (lock-spike): python spikes/duckdb_lock/run_all.py
+# D5 独立复核实测日志（VYB-419）
+环境：python 3.14.6 / duckdb 1.5.5 / cwd=<repo>
+mcp-server-motherduck: <repo>/.pixi/envs/default/bin/mcp-server-motherduck
+夹具：labflow.duckdb / labflow.sqlite（projects / batches / file_versions 三表，含各 1 行）
+
+== A. DuckDB：应用持常驻连接时，第二个进程开同一文件 ==
+A1 应用进程（rw 常驻连接，空闲无事务）：pid=467172 connection_open=True
+A2.rw  [应用持锁/rw] 失败(open) 3.4ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467172). See also https://duckdb.org/docs/stable/connect/concurrency
+A2.rw  └ 结果：有失败
+A2.ro  [应用持锁/ro] 失败(open) 3.4ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467172). See also https://duckdb.org/docs/stable/connect/concurrency
+A2.ro  └ 结果：有失败
+A2.attach-ro  [应用持锁/attach-ro] 失败(open) 7.5ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467172). See also https://duckdb.org/docs/stable/connect/concurrency
+A2.attach-ro  └ 结果：有失败
+A2.no-lock  [应用持锁/no-lock] 失败(open) 3.4ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467172). See also https://duckdb.org/docs/stable/connect/concurrency
+A2.no-lock  └ 结果：有失败
+A2.retry  [应用持锁/ro重试5次每秒1次] 失败(open) 3.5ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467172). See also https://duckdb.org/docs/stable/connect/concurrency
+A2.retry  [应用持锁/ro重试5次每秒1次] 失败(open) 4.7ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467172). See also https://duckdb.org/docs/stable/connect/concurrency
+A2.retry  [应用持锁/ro重试5次每秒1次] 失败(open) 4.3ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467172). See also https://duckdb.org/docs/stable/connect/concurrency
+A2.retry  [应用持锁/ro重试5次每秒1次] 失败(open) 4.4ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467172). See also https://duckdb.org/docs/stable/connect/concurrency
+A2.retry  [应用持锁/ro重试5次每秒1次] 失败(open) 3.8ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467172). See also https://duckdb.org/docs/stable/connect/concurrency
+A2.retry  └ 结果：有失败
+A3 应用关闭连接（进程继续存活，等价于「按需 open/close」）
+  holder 事件：{"event": "closed", "connection_open": false}
+A3.ro  [应用已关连接/ro] 成功 9.4ms（开库 7.6ms） 结果=[[1]]
+A3.ro  └ 结果：全部成功
+A3.rw  [应用已关连接/rw] 成功 9.4ms（开库 7.6ms） 结果=[[1]]
+A3.rw  └ 结果：全部成功
+A4 应用重新打开连接（锁随即被再次独占）
+  holder 事件：{"event": "opened", "connection_open": true}
+A4.ro  [应用重开连接/ro] 失败(open) 3.6ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467172). See also https://duckdb.org/docs/stable/connect/concurrency
+A4.ro  └ 结果：有失败
+A5 应用进程退出（锁随进程退出释放）
+A5.ro  [应用已退出/ro] 成功 8.9ms（开库 7.3ms） 结果=[[1]]
+A5.ro  └ 结果：全部成功
+A6 「排队等待」验证：应用 4 秒后放锁，第二个进程每秒重试一次
+  holder 事件（放锁）：{"event": "closed", "connection_open": false}
+A6  [排队重试(应用4秒后放锁)] 失败(open) 3.8ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467572). See also https://duckdb.org/docs/stable/connect/concurrency
+A6  [排队重试(应用4秒后放锁)] 失败(open) 4.4ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467572). See also https://duckdb.org/docs/stable/connect/concurrency
+A6  [排队重试(应用4秒后放锁)] 失败(open) 6.9ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467572). See also https://duckdb.org/docs/stable/connect/concurrency
+A6  [排队重试(应用4秒后放锁)] 失败(open) 5.3ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467572). See also https://duckdb.org/docs/stable/connect/concurrency
+A6  [排队重试(应用4秒后放锁)] 成功 14.4ms（开库 12.5ms） 结果=[[1]]
+A6  └ 结果：有失败
+
+== B. DuckDB：第一个进程只读打开时，第二个进程能读 / 能写吗 ==
+B1 第一个进程只读打开：pid=467734 mode=ro
+B2.ro  [只读持锁者/第二个只读] 成功 9.2ms（开库 7.3ms） 结果=[[1]]
+B2.ro  └ 结果：全部成功
+B3.rw  [只读持锁者/第二个读写写入] 失败(open) 3.3ms：IOException: IO Error: Could not set lock on file "<repo>/.tmp/duckdb_lock_run/labflow.duckdb": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467734). However, you would be able to open this database in read-only mode, e.g. by using the -readonly parameter in the CLI. See also https://duckdb.org/docs/stable/connect/concurrency
+B3.rw  └ 结果：有失败
+
+== C. sqlite 对照（WAL + busy_timeout）：第二个进程能读 / 能写吗 ==
+C1 应用进程（sqlite，WAL，busy_timeout=5s）：pid=467823
+  holder 事件：{"event": "began", "connection_open": true}   <- 应用持有一个未提交的写事务（已 INSERT）
+C2  [read] 成功 0.3ms 结果=[[1]]
+C3 应用 3 秒后提交；第二个进程带 5s busy_timeout 去写（预期：排队等到，成功）
+C3  [write] 成功 3037.4ms
+C4 应用持有写事务不放；第二个进程 busy_timeout=1s 去写（预期：排队等到超时才失败）
+  holder 事件：{"event": "began", "connection_open": true}
+C4  [write] 失败 1001.6ms：OperationalError: database is locked
+C5 同上，但 busy_timeout=0（不排队）：用来证明「等待」是 busy_timeout 给的，不是自动的
+C5  [write] 失败 0.3ms：OperationalError: database is locked
+  holder 事件：{"event": "committed"}
+
+== D. 官方本地包 mcp-server-motherduck 实测（stdio，本地文件，无 token、不联网） ==
+D1 应用不在跑：MCP 直连本地文件（基线，证明本地包可用）
+D1  <<mcp_initialize>> {"protocolVersion": "2025-06-18", "server": "mcp-server-motherduck 1.0.8", "ms": 642.4}
+D1  <<mcp_tools_list>> {"tools": [{"name": "execute_query", "readOnlyHint": true}, {"name": "list_databases", "readOnlyHint": true}, {"name": "list_tables", "readOnlyHint": true}, {"name": "list_columns", "readOnlyHint": true}], "ms": 102.1}
+D1  <<mcp_tool_chosen>> {"tool": "execute_query"}
+D1  <<mcp_tool_call_query>> {"isError": false, "ms": 25.9, "result": "{\n  \"success\": true,\n  \"columns\": [\n    \"n\"\n  ],\n  \"columnTypes\": [\n    \"BIGINT\"\n  ],\n  \"rows\": [\n    [\n      1\n    ]\n  ],\n  \"rowCount\": 1\n}"}
+D1  [stderr] ["[motherduck] INFO - Database client initialized in `duckdb` mode", "[motherduck] INFO - FastMCP server created", "[motherduck] INFO - MCP server initialized in \u001b[32mstdio\u001b[0m mode", "[motherduck] INFO - Waiting for client connection", "[09/27/26 10:56:02] INFO     Starting MCP server                transport.py:242", "                             'mcp-server-motherduck' with", "                             transport 'stdio'", "[motherduck] INFO - 🔌 Connecting to duckdb database"]
+D1  └ 结果：成功
+D2 应用在跑（rw 常驻连接）：MCP 默认（只读）
+D2  <<mcp_initialize>> {"protocolVersion": "2025-06-18", "server": "mcp-server-motherduck 1.0.8", "ms": 630.5}
+D2  <<mcp_tools_list>> {"tools": [{"name": "execute_query", "readOnlyHint": true}, {"name": "list_databases", "readOnlyHint": true}, {"name": "list_tables", "readOnlyHint": true}, {"name": "list_columns", "readOnlyHint": true}], "ms": 101.7}
+D2  <<mcp_tool_chosen>> {"tool": "execute_query"}
+D2  <<mcp_tool_call_query>> {"isError": true, "ms": 26.9, "result": "Error calling tool 'execute_query': {\n  \"success\": false,\n  \"error\": \"IO Error: Could not set lock on file \\\"<repo>/.tmp/duckdb_lock_run/labflow.duckdb\\\": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467994). See also https://duckdb.org/docs/stable/connect/concurrency\",\n  \"errorType\": \"IOException\"\n}"}
+D2  [stderr] ["                    -9a36854422fa/workdir/LabFlow/.tmp/duckdb_lock_run/labflow.d", "                    uckdb\\\": Conflicting lock is held in", "                    <repo>/.pixi/envs/default/bin/python3.1", "                    4 (PID 467994). See also", "                    https://duckdb.org/docs/stable/connect/concurrency\",", "                      \"errorType\": \"IOException\"", "                    }"]
+D2  └ 结果：失败
+D3 应用在跑：MCP --read-write
+D3  <<mcp_initialize>> {"protocolVersion": "2025-06-18", "server": "mcp-server-motherduck 1.0.8", "ms": 645.7}
+D3  <<mcp_tools_list>> {"tools": [{"name": "execute_query", "readOnlyHint": false}, {"name": "list_databases", "readOnlyHint": true}, {"name": "list_tables", "readOnlyHint": true}, {"name": "list_columns", "readOnlyHint": true}], "ms": 99.6}
+D3  <<mcp_tool_chosen>> {"tool": "execute_query"}
+D3  <<mcp_tool_call_query>> {"isError": true, "ms": 26.4, "result": "Error calling tool 'execute_query': {\n  \"success\": false,\n  \"error\": \"IO Error: Could not set lock on file \\\"<repo>/.tmp/duckdb_lock_run/labflow.duckdb\\\": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467994). See also https://duckdb.org/docs/stable/connect/concurrency\",\n  \"errorType\": \"IOException\"\n}"}
+D3  [stderr] ["                    -9a36854422fa/workdir/LabFlow/.tmp/duckdb_lock_run/labflow.d", "                    uckdb\\\": Conflicting lock is held in", "                    <repo>/.pixi/envs/default/bin/python3.1", "                    4 (PID 467994). See also", "                    https://duckdb.org/docs/stable/connect/concurrency\",", "                      \"errorType\": \"IOException\"", "                    }"]
+D3  └ 结果：失败
+D4 应用在跑：MCP --ephemeral-connections（每次查询新开连接）
+D4  <<mcp_initialize>> {"protocolVersion": "2025-06-18", "server": "mcp-server-motherduck 1.0.8", "ms": 642.3}
+D4  <<mcp_tools_list>> {"tools": [{"name": "execute_query", "readOnlyHint": true}, {"name": "list_databases", "readOnlyHint": true}, {"name": "list_tables", "readOnlyHint": true}, {"name": "list_columns", "readOnlyHint": true}], "ms": 101.1}
+D4  <<mcp_tool_chosen>> {"tool": "execute_query"}
+D4  <<mcp_tool_call_query>> {"isError": true, "ms": 26.5, "result": "Error calling tool 'execute_query': {\n  \"success\": false,\n  \"error\": \"IO Error: Could not set lock on file \\\"<repo>/.tmp/duckdb_lock_run/labflow.duckdb\\\": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 467994). See also https://duckdb.org/docs/stable/connect/concurrency\",\n  \"errorType\": \"IOException\"\n}"}
+D4  [stderr] ["                    -9a36854422fa/workdir/LabFlow/.tmp/duckdb_lock_run/labflow.d", "                    uckdb\\\": Conflicting lock is held in", "                    <repo>/.pixi/envs/default/bin/python3.1", "                    4 (PID 467994). See also", "                    https://duckdb.org/docs/stable/connect/concurrency\",", "                      \"errorType\": \"IOException\"", "                    }"]
+D4  └ 结果：失败
+D5 应用进程退出（锁释放）
+D5  <<mcp_initialize>> {"protocolVersion": "2025-06-18", "server": "mcp-server-motherduck 1.0.8", "ms": 639.7}
+D5  <<mcp_tools_list>> {"tools": [{"name": "execute_query", "readOnlyHint": true}, {"name": "list_databases", "readOnlyHint": true}, {"name": "list_tables", "readOnlyHint": true}, {"name": "list_columns", "readOnlyHint": true}], "ms": 100.2}
+D5  <<mcp_tool_chosen>> {"tool": "execute_query"}
+D5  <<mcp_tool_call_query>> {"isError": false, "ms": 20.1, "result": "{\n  \"success\": true,\n  \"columns\": [\n    \"n\"\n  ],\n  \"columnTypes\": [\n    \"BIGINT\"\n  ],\n  \"rows\": [\n    [\n      1\n    ]\n  ],\n  \"rowCount\": 1\n}"}
+D5  [stderr] ["[motherduck] INFO - Database client initialized in `duckdb` mode", "[motherduck] INFO - FastMCP server created", "[motherduck] INFO - MCP server initialized in \u001b[32mstdio\u001b[0m mode", "[motherduck] INFO - Waiting for client connection", "[09/27/26 10:56:06] INFO     Starting MCP server                transport.py:242", "                             'mcp-server-motherduck' with", "                             transport 'stdio'", "[motherduck] INFO - 🔌 Connecting to duckdb database"]
+D5  └ 结果：成功
+D6 反向：应用空闲，MCP 默认（读只 + ephemeral）查过一次、进程仍存活时，第三个进程能否独占开库
+D6  <<mcp_initialize>> {"protocolVersion": "2025-06-18", "server": "mcp-server-motherduck 1.0.8", "ms": 642.3}
+D6  <<mcp_tools_list>> {"tools": [{"name": "execute_query", "readOnlyHint": true}, {"name": "list_databases", "readOnlyHint": true}, {"name": "list_tables", "readOnlyHint": true}, {"name": "list_columns", "readOnlyHint": true}], "ms": 103.7}
+D6  <<mcp_tool_chosen>> {"tool": "execute_query"}
+D6  <<mcp_tool_call_query>> {"isError": false, "ms": 27.6, "result": "{\n  \"success\": true,\n  \"columns\": [\n    \"n\"\n  ],\n  \"columnTypes\": [\n    \"BIGINT\"\n  ],\n  \"rows\": [\n    [\n      1\n    ]\n  ],\n  \"rowCount\": 1\n}"}
+D6  <<mcp_post_probe>> {"ok": true, "ms": 38.7, "error": null}
+D6  [stderr] ["[motherduck] INFO - Database client initialized in `duckdb` mode", "[motherduck] INFO - FastMCP server created", "[motherduck] INFO - MCP server initialized in \u001b[32mstdio\u001b[0m mode", "[motherduck] INFO - Waiting for client connection", "[09/27/26 10:56:07] INFO     Starting MCP server                transport.py:242", "                             'mcp-server-motherduck' with", "                             transport 'stdio'", "[motherduck] INFO - 🔌 Connecting to duckdb database"]
+D6  └ 结果：成功
+D7 反向：应用空闲，MCP --read-write（常驻读写连接）查过一次后，第三个进程能否开库
+D7  <<mcp_initialize>> {"protocolVersion": "2025-06-18", "server": "mcp-server-motherduck 1.0.8", "ms": 644.3}
+D7  <<mcp_tools_list>> {"tools": [{"name": "execute_query", "readOnlyHint": false}, {"name": "list_databases", "readOnlyHint": true}, {"name": "list_tables", "readOnlyHint": true}, {"name": "list_columns", "readOnlyHint": true}], "ms": 100.2}
+D7  <<mcp_tool_chosen>> {"tool": "execute_query"}
+D7  <<mcp_tool_call_query>> {"isError": false, "ms": 15.2, "result": "{\n  \"success\": true,\n  \"columns\": [\n    \"n\"\n  ],\n  \"columnTypes\": [\n    \"BIGINT\"\n  ],\n  \"rows\": [\n    [\n      1\n    ]\n  ],\n  \"rowCount\": 1\n}"}
+D7  <<mcp_post_probe>> {"ok": false, "ms": 3.5, "error": "IO Error: Could not set lock on file \"<repo>/.tmp/duckdb_lock_run/labflow.duckdb\": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 468506). See also https://duckdb.org/docs/stable/connect/concurrency"}
+D7  [stderr] ["[motherduck] INFO - FastMCP server created", "[motherduck] INFO - MCP server initialized in \u001b[32mstdio\u001b[0m mode", "[motherduck] INFO - Waiting for client connection", "[09/27/26 10:56:08] INFO     Starting MCP server                transport.py:242", "                             'mcp-server-motherduck' with", "                             transport 'stdio'", "[motherduck] INFO - 🔌 Connecting to duckdb database", "[motherduck] INFO - ✅ Successfully connected to duckdb database"]
+D7  └ 结果：成功
+D8 反向：应用空闲，MCP --no-ephemeral-connections（常驻只读连接）查过一次后，第三个进程能否开库
+D8  <<mcp_initialize>> {"protocolVersion": "2025-06-18", "server": "mcp-server-motherduck 1.0.8", "ms": 641.2}
+D8  <<mcp_tools_list>> {"tools": [{"name": "execute_query", "readOnlyHint": true}, {"name": "list_databases", "readOnlyHint": true}, {"name": "list_tables", "readOnlyHint": true}, {"name": "list_columns", "readOnlyHint": true}], "ms": 98.9}
+D8  <<mcp_tool_chosen>> {"tool": "execute_query"}
+D8  <<mcp_tool_call_query>> {"isError": false, "ms": 15.2, "result": "{\n  \"success\": true,\n  \"columns\": [\n    \"n\"\n  ],\n  \"columnTypes\": [\n    \"BIGINT\"\n  ],\n  \"rows\": [\n    [\n      1\n    ]\n  ],\n  \"rowCount\": 1\n}"}
+D8  <<mcp_post_probe>> {"ok": false, "ms": 3.4, "error": "IO Error: Could not set lock on file \"<repo>/.tmp/duckdb_lock_run/labflow.duckdb\": Conflicting lock is held in <repo>/.pixi/envs/default/bin/python3.14 (PID 468561). However, you would be able to open this database in read-only mode, e.g. by using the -readonly parameter in the CLI. See also https://duckdb.org/docs/stable/connect/concurrency"}
+D8  [stderr] ["[motherduck] INFO - FastMCP server created", "[motherduck] INFO - MCP server initialized in \u001b[32mstdio\u001b[0m mode", "[motherduck] INFO - Waiting for client connection", "[09/27/26 10:56:09] INFO     Starting MCP server                transport.py:242", "                             'mcp-server-motherduck' with", "                             transport 'stdio'", "[motherduck] INFO - 🔌 Connecting to duckdb database", "[motherduck] INFO - Using persistent read-only connection"]
+D8  └ 结果：成功
+D9 :memory: 库（MCP 默认档，证明不需要任何云 / token）
+D9  <<mcp_initialize>> {"protocolVersion": "2025-06-18", "server": "mcp-server-motherduck 1.0.8", "ms": 639.4}
+D9  <<mcp_tools_list>> {"tools": [{"name": "execute_query", "readOnlyHint": false}, {"name": "list_databases", "readOnlyHint": true}, {"name": "list_tables", "readOnlyHint": true}, {"name": "list_columns", "readOnlyHint": true}], "ms": 100.0}
+D9  <<mcp_tool_chosen>> {"tool": "execute_query"}
+D9  <<mcp_tool_call_query>> {"isError": false, "ms": 14.1, "result": "{\n  \"success\": true,\n  \"columns\": [\n    \"n\"\n  ],\n  \"columnTypes\": [\n    \"INTEGER\"\n  ],\n  \"rows\": [\n    [\n      42\n    ]\n  ],\n  \"rowCount\": 1\n}"}
+D9  [stderr] ["[motherduck] INFO - FastMCP server created", "[motherduck] INFO - MCP server initialized in \u001b[32mstdio\u001b[0m mode", "[motherduck] INFO - Waiting for client connection", "[09/27/26 10:56:10] INFO     Starting MCP server                transport.py:242", "                             'mcp-server-motherduck' with", "                             transport 'stdio'", "[motherduck] INFO - 🔌 Connecting to duckdb database", "[motherduck] INFO - ✅ Successfully connected to duckdb database"]
+D9  └ 结果：成功
+
+# 实测结束
