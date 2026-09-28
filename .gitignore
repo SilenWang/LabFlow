@@ -2,6 +2,7 @@ data/
 uploads/
 backups/
 tools/
+mcp-downloads/
 *.msi
 *.zip
 *.log
