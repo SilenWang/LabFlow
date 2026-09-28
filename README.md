@@ -76,11 +76,13 @@ sudo firewall-cmd --add-port=9002/tcp --permanent && sudo firewall-cmd --reload 
 ## 数据位置
 
 - 数据库（seekdb）：`data/seekdb/`
+- 数据库（ducklake）：`data/ducklake/`（catalog.sqlite + data/ + ids.sqlite）
 - 数据库（sqlite 回滚点）：`data/labflow.db`
 - 上传文件：`uploads/`
 - 备份产物：`backups/`
 
-备份用 `pixi run backup`，不要只靠手抄文件夹。见 [docs/运维手册.md](docs/运维手册.md)。
+备份用 `pixi run backup`，不要只靠手抄文件夹：ducklake 后端有 WAL，活拷文件会拿到半个状态，
+脚本会短暂停服后整目录拷贝。见 [docs/运维手册.md](docs/运维手册.md)。
 
 ## 删除与恢复
 
