@@ -31,36 +31,39 @@ def _seekdb_dir():
     return Path(DB_PATH).parent / "seekdb"
 
 
-def _ducklake_dir():
+def _ducklake_dir(ducklake_dir=None):
     # 同理跟着 DB_PATH 走：sqlite 是单个 data/labflow.db，
     # DuckLake 是 data/ducklake/{catalog.sqlite,data/,client.duckdb,ids.sqlite}。
+    # 显式传入 ducklake_dir 时按传入的来：迁移脚本要写到指定目标目录。
+    if ducklake_dir is not None:
+        return Path(ducklake_dir)
     return Path(DB_PATH).parent / "ducklake"
 
 
-def _ducklake_client_path():
+def _ducklake_client_path(ducklake_dir=None):
     # 应用侧那条 DuckDB 连接挂载用的空文件（数据都在 catalog + parquet 里），
     # 放在 ducklake 目录内，免得被当成"数据库"单独备份或让 MCP 去开。
-    return _ducklake_dir() / "client.duckdb"
+    return _ducklake_dir(ducklake_dir) / "client.duckdb"
 
 
-def _ducklake_catalog_path():
-    return _ducklake_dir() / "catalog.sqlite"
+def _ducklake_catalog_path(ducklake_dir=None):
+    return _ducklake_dir(ducklake_dir) / "catalog.sqlite"
 
 
-def make_ducklake_engine():
+def make_ducklake_engine(ducklake_dir=None):
     """duckdb-engine + DuckLake（SQLite catalog）。
 
     DuckLake 建不了 PK/UNIQUE/FK、也没有 sequence（DL0 实测），所以这里只负责
     「把文件挂上、让建表语句能编出来」；id 分配与唯一性校验分别见 next_id() 与 handler。
     """
-    data_dir = _ducklake_dir() / "data"
+    data_dir = _ducklake_dir(ducklake_dir) / "data"
     data_dir.mkdir(parents=True, exist_ok=True)
-    catalog = _ducklake_catalog_path()
+    catalog = _ducklake_catalog_path(ducklake_dir)
     # catalog 必须开 WAL：默认 delete journal 时，池里第二条连接读 snapshot 会报
     # "Failed to query most recent snapshot for DuckLake: database is locked"。
     with sqlite3.connect(catalog) as conn:
         conn.execute("PRAGMA journal_mode=WAL")
-    engine = create_engine(f"duckdb:///{_ducklake_client_path()}", echo=False)
+    engine = create_engine(f"duckdb:///{_ducklake_client_path(ducklake_dir)}", echo=False)
 
     @event.listens_for(engine, "connect")
     def _attach(dbapi_connection, connection_record):
@@ -94,21 +97,30 @@ def _ducklake_ddl_metadata():
     return ddl
 
 
+def create_ducklake_tables(engine):
+    """按 DuckLake 的建表规则建表（与 LABFLOW_DB 当前取值无关）。
+
+    迁移脚本要在 sqlite 配置下把表建进 DuckLake，所以这一步不能走 ``create_all``
+    那条按后端分支的路；``create_all`` 自己也复用本函数。
+    """
+    _ducklake_ddl_metadata().create_all(engine)
+
+
 def create_all(engine):
     if DB_BACKEND == "ducklake":
-        _ducklake_ddl_metadata().create_all(engine)
+        create_ducklake_tables(engine)
     else:
         Base.metadata.create_all(engine)
 
 
-def next_id(table_name):
+def next_id(table_name, ducklake_dir=None):
     """DuckLake 没有 sequence，id 由应用层从这里取。
 
     catalog 本身就是 SQLite，加一张计数器表几乎不花钱：WAL + busy_timeout 下
     多线程/多进程取号不重复（DL0 实测 4 线程各 100 个 = 400/400 唯一）。
     ponytail: 每次取号开一条 SQLite 连接（~0.04ms）；要提速再考虑连接复用。
     """
-    with sqlite3.connect(_ducklake_dir() / "ids.sqlite", timeout=30) as conn:
+    with sqlite3.connect(_ducklake_dir(ducklake_dir) / "ids.sqlite", timeout=30) as conn:
         conn.execute("PRAGMA busy_timeout=5000")
         conn.execute("CREATE TABLE IF NOT EXISTS id_seq (name TEXT PRIMARY KEY, next INTEGER)")
         row = conn.execute(
@@ -119,16 +131,36 @@ def next_id(table_name):
         return row[0]
 
 
+def reset_id_counter(table_name, last_id, ducklake_dir=None):
+    """把计数器 restart 到「已用掉的最大 id」，下一次 next_id() 就是 last_id + 1。
+
+    迁移搬完历史行（显式带 id）后必须调用，否则新插入从 1 开始、直接撞上搬过来的
+    主键——DuckLake 没有 PK 兜底，重号会静默入库（复核实测：库里两条同 id 行都在，
+    ORM 因身份映射只回一条）。计数器是 last_id 而不是 last_id+1：next_id() 的语义是
+    「先自增再返回」，与 DB 的序列不同。
+    """
+    with sqlite3.connect(_ducklake_dir(ducklake_dir) / "ids.sqlite", timeout=30) as conn:
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("CREATE TABLE IF NOT EXISTS id_seq (name TEXT PRIMARY KEY, next INTEGER)")
+        conn.execute(
+            "INSERT INTO id_seq (name, next) VALUES (?, ?) "
+            "ON CONFLICT(name) DO UPDATE SET next = excluded.next",
+            (table_name, int(last_id)),
+        )
+
+
 def _assign_app_id(mapper, connection, target):
-    if target.id is None:
-        target.id = next_id(mapper.class_.__tablename__)
+    # 后端在调用时判（而不是 import 时判）：测试里切后端/"启动后改配置"都能生效，
+    # 生产上 LABFLOW_DB 在进程启动时就定了，行为不变。
+    if DB_BACKEND != "ducklake" or target.id is not None:
+        return
+    target.id = next_id(mapper.class_.__tablename__)
 
 
-# 只在 DuckLake 下挂：其它后端由数据库自己给 id。
-# 挂在 mapper 上（而不是 handler 的建对象处），所有 ORM 插入都在 flush 前拿到号。
-if DB_BACKEND == "ducklake":
-    for _model in (User, Project, Batch, FileVersion):
-        event.listen(_model, "before_insert", _assign_app_id)
+# 挂在 mapper 上（而不是 handler 的建对象处），所有 ORM 插入都在 flush 前拿到号；
+# 非 DuckLake 后端由上面的 _assign_app_id 直接放行，交回数据库自己给 id。
+for _model in (User, Project, Batch, FileVersion):
+    event.listen(_model, "before_insert", _assign_app_id)
 
 
 def open_seekdb(db_dir=None, database=SEEKDB_DATABASE):
