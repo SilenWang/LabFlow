@@ -1,0 +1,73 @@
+duckdb 1.5.5 / sqlalchemy 2.0.50 / python 3.14.6
+
+==============================================================================
+1. DuckLake 的 DDL 限制（裸 duckdb，duckdb 1.5.5）
+==============================================================================
+  ducklake 扩展： [('ducklake', 'd8a1881e', 'REPOSITORY')]
+  [ERR] INTEGER PRIMARY KEY -> NotImplementedException: Not implemented Error: PRIMARY KEY/UNIQUE constraints are not supported in DuckLake
+  [ERR] UNIQUE 列约束 -> NotImplementedException: Not implemented Error: PRIMARY KEY/UNIQUE constraints are not supported in DuckLake
+  [ERR] 命名 UNIQUE 约束 -> NotImplementedException: Not implemented Error: PRIMARY KEY/UNIQUE constraints are not supported in DuckLake
+  [ERR] CHECK 约束 -> NotImplementedException: Not implemented Error: CHECK constraints are not supported in DuckLake
+  [ERR] CREATE SEQUENCE（DuckLake 内） -> NotImplementedException: Not implemented Error: DuckLake does not support sequences
+  [ERR] FOREIGN KEY（同 schema） -> BinderException: Binder Error: Failed to create foreign key: there is no primary key or unique constraint for referenced table "t_pk_ok"
+  [OK ] 普通表（无约束） -> <_duckdb.DuckDBPyConnection object at 0x7f85568c39f0>
+  [OK ] 字面量 DEFAULT -> <_duckdb.DuckDBPyConnection object at 0x7f85568c39f0>
+  [ERR] 非字面量 DEFAULT（D1 的 nextval 就是这类） -> NotImplementedException: Not implemented Error: DuckLake does not support sequences
+  DuckLake 里的表： [('t_def',), ('t_ok',), ('t_pk_ok',)]
+
+==============================================================================
+2. Base.metadata.create_all —— 真实 models.py 三版对比
+==============================================================================
+  SQLAlchemy 2.0.50
+  [ERR] 现状 main 的 models.py（autoincrement=True） -> ProgrammingError: (_duckdb.CatalogException) Catalog Error: Type with name SERIAL does not exist! Did you mean "JSON"?  LINE 3: 	id SERIAL NOT NULL,             ^ [SQL:  CREATE TABLE users ( 	id SERIAL NOT NULL,  	username VARCHAR(60) NOT NULL,  	display_name VARCHAR(60) NOT NULL,  	role VARCHAR(20) NOT NULL,  	password_salt VARCHAR(64) NOT NULL,  	password_hash VARCHAR(128) NOT NULL,  	active INTEGER NOT NULL,  	created_at VARCHAR(32) NOT NULL,  	PRIMARY KEY (id),  	CONSTRAINT uq_users_username UNIQUE (username) )  ] (Background on this error at: https://sqlalche.me/e/20/f405)
+  [ERR] D1 分支 a3b7de1 的 models.py（Sequence + server_default=nextval） -> NotSupportedError: (_duckdb.NotImplementedException) Not implemented Error: DuckLake does not support sequences [SQL: CREATE SEQUENCE users_id_seq] (Background on this error at: https://sqlalche.me/e/20/tw8g)
+  [OK ] DuckLake 变体（id 交给应用层 + 不建 PK/UNIQUE/FK）
+  实际建表 DDL（batches）：
+    
+    CREATE TABLE batches (
+    	id INTEGER NOT NULL, 
+    	project_id INTEGER NOT NULL, 
+    	batch_no VARCHAR(80) NOT NULL, 
+    	name VARCHAR(120) NOT NULL, 
+    	remark VARCHAR(1000), 
+    	synthesis_submitted_date VARCHAR(10), 
+    	synthesis_completed_date VARCHAR(10), 
+    	bio_test_start_date VARCHAR(10), 
+    	bio_test_completed_date VARCHAR(10), 
+    	created_by INTEGER NOT NULL, 
+    	created_at VARCHAR(32) NOT NULL, 
+    	updated_at VARCHAR(32) NOT NULL, 
+    	deleted_at VARCHAR(32)
+    )
+    
+  DuckLake 里的表： [('batches',), ('file_versions',), ('projects',), ('users',)]
+  [OK ] 再跑一次 create_all（init_db 每次启动都会跑，checkfirst 必须幂等）
+
+==============================================================================
+3. 仓库真实查询形状（在 DuckLake 表上跑）
+==============================================================================
+  [OK ] get_batch 形状 -> id=1 name=批次一 project=项目甲
+  [OK ] latest_files 形状 -> [(1, 'a.pdf', '化学 1')]
+  [OK ] list_batches 形状 -> [(1, '批次一')]
+  [OK ] 回收站 subquery+outerjoin+coalesce -> [(2, '项目乙（回收站）', 1)]
+  [OK ] Query.update() 批量软删 -> update 返回 rowcount=-1（duckdb-engine 是 -1），剩余未删=0
+
+==============================================================================
+4. 唯一 / 外键是否真生效；id 生成三种方式的代价
+==============================================================================
+  [OK ] 插入重名批次（现有语义应当 409）
+       -> IntegrityError=False；库里同名行数=2
+  [OK ] 插入 project_id=999 的孤儿批次（现有语义应当被拒）
+       -> IntegrityError=False；孤儿行数=1
+  [OK ] 插入重复主键 id=1（现有语义应当被拒）
+       -> id=1 的行数= 2
+  [OK ] (a) max(id)+1 + INSERT：30 次 / 17.4 ms 每次
+       -> 竞态示例：会话 A 读到 max=33，会话 B 同时读到 max=33，两边都插入 id=34（DuckLake 无唯一约束，落库是两条同 id 的行）
+  [ERR] (b) DuckLake 计数表 UPDATE ... RETURNING -> ProgrammingError: (_duckdb.BinderException) Binder Error: RETURNING clause not yet supported for updates of a DuckLake table
+[SQL: UPDATE dlk.main.id_counter SET v = v + 1 WHERE k = 'batches' RETURNING v]
+(Background on this error at: https://sqlalche.me/e/20/f405)
+       -> 退化成 UPDATE + SELECT 两条语句：30 次 / 15.9 ms 每次，区间 1..30
+  [OK ] (c) 辅助 SQLite 计数表：200 次 / 0.037 ms 每次；区间 1..200，唯一 200/200
+       -> 4 线程各取 100 个 id：拿到 400 个，唯一 400，报错 0 个
+  [OK ] 应用层唯一校验 SELECT 1 FROM batches WHERE name=?：30 次 / 8.21 ms 每次；竞态窗口 = 该校验与 INSERT 提交之间（无 DB 兜底，两进程可同时通过）
+  [OK ] NOT NULL 违反照常报错 -> IntegrityError；rollback 后 继续插入成功（id=902 行数=1）

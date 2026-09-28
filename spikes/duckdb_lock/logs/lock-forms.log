@@ -1,0 +1,35 @@
+✨ Pixi task (lock-forms): python spikes/duckdb_lock/forms_cost.py
+# D5 三种绕锁形态的成本与新鲜度实测（VYB-419）
+环境：python 3.14.6 / duckdb 1.5.5
+活库：<repo>/.tmp/duckdb_forms/labflow.duckdb
+
+== (i) 快照导出：耗时 / 体积 / 谁能触发 / 滞后窗口 ==
+活库规模：{'projects': 50, 'batches': 20000, 'file_versions': 60000}（projects / batches / file_versions）
+(i).a 应用进程内 EXPORT DATABASE → parquet 目录：23ms，1.1MB
+(i).b 应用进程内 ATTACH + CREATE TABLE AS → 只读快照文件：126ms，1.5MB
+(i).c 第二个进程（不先停应用）自己开库导出：失败 3.2ms IOException: IO Error: Could not set lock on file "<repo>/La
+(i).d 快照文件被独立进程只读打开：成功 8.4ms [[20000]]
+(i).e 滞后窗口 = 导出触发间隔（导出后新写入要等下一次导出才可见）：
+        5 分钟一次       → 最大滞后 300s；每天导出成本 ≈ 6.5s CPU
+        30 分钟一次      → 最大滞后 1800s；每天导出成本 ≈ 1.1s CPU
+        每天一次         → 最大滞后 86400s；每天导出成本 ≈ 0.0s CPU
+
+== (iii) 应用改成按需 open/close：单次开销 / 锁是否真释放 / 并发打架 ==
+(iii).a 单次「open + 查询 + close」：均值 7.4ms，中位 6.6ms（20 次）
+(iii).b 对照：常驻连接上同一查询：均值 0.18ms（20 次）→ 每请求多付约 7.2ms
+(iii).c 应用只要还持有连接，外部进程 3 次试写结果：[False, False, False]（False = 被锁挡住）
+(iii).d 应用 close：{"event": "closed", "connection_open": false}
+        外部进程（模拟 MCP）抢占：pid=469163
+        应用下一个请求想开库：失败 ← IO Error: Could not set lock on file "<repo-truncated>
+        外部进程退出后，应用开库：成功（8.4ms）
+
+== (ii) 应用侧出口（HTTP）：复用现有接口的成本与改动面 ==
+(ii).0 登录：HTTP 200
+(ii).a GET /api/projects：均值 1.6ms，响应 74.0B（20 次，含本机回环）
+(ii).a GET /api/batches?project_id=1：均值 59.8ms，响应 111.8KB（20 次，含本机回环）
+(ii).a GET /api/trash：均值 3.0ms，响应 44.0B（20 次，含本机回环）
+(ii).b 改动面：现有只读出口已覆盖 list_projects / list_batches / list_trash / list_users / file-config；
+        软删除语义在 server/serializers.py 里统一用 deleted_at IS NULL 过滤，新出口直接复用即可；
+        权限沿用 server/handler.py 的 require_user / require_manager；缺的是「任意 SQL 分析」，要新开只读查询接口。
+
+# 实测结束

@@ -1,0 +1,49 @@
+✨ Pixi task (lock-per-request): python spikes/duckdb_lock/per_request.py
+# D5 补充实测：按请求 open/close 时的锁占用（VYB-419）
+环境：python 3.14.6 / duckdb 1.5.5
+夹具：<repo>/.tmp/duckdb_per_request/labflow.duckdb（projects / batches / file_versions，2 行 batches）
+
+== 0. 每请求 open/close 的开销（SQLAlchemy + duckdb-engine，贴近应用写法） ==
+   （同时看本进程有没有把库文件 fd 一直握着——这就是「锁是否持续被占」的直接证据）
+0.a NullPool（每请求新开连接、用完即关）：均值 7.2ms，p50 6.9ms，p95 7.6ms；库文件 fd 仍持有 = False
+0.b 常驻连接（StaticPool，SQLAlchemy 默认池的形状）：均值 0.22ms，p95 0.3ms；库文件 fd 仍持有 = True
+
+== 1. 应用按请求 open/close（无重试）：请求间隙，第二个进程能不能打开 ==
+1 应用：80 个请求，失败 19，重试 0 次；单次 open 17.3ms(p95 26.32)，请求耗时 42.86ms(p95 63.16, max 65.32)；锁占用 2286.7ms / 10233.8ms = 22.3%
+1 第二个进程（只读开库，不重试）369 次尝试：成功 245，失败 124，成功率 66.4%；耗时 p50 7.5ms / p95 13.4ms
+  失败样例：IOException: IO Error: Could not set lock on file "<repo-truncated>
+
+== 2. 官方 MCP 真跑：应用三种形态下同一会话里的查询成功率 ==
+2.a 应用空闲（没有任何进程持锁）——基线
+2 应用空闲：MCP 查了 5 次，成功 5 次（100%），耗时 p50 10.8ms / max 26.9ms
+2.b 应用按请求 open/close 中（每请求持锁约 15ms、间隙约 85ms）
+2.b 应用：120 个请求，失败 0，重试 0 次；单次 open 13.68ms(p95 15.21)，请求耗时 30.12ms(p95 31.76, max 32.2)；锁占用 1971.1ms / 13830.1ms = 14.2%
+2 应用按请求开关：MCP 查了 20 次，成功 17 次（85%），耗时 p50 7.5ms / max 26.1ms
+   失败样例：Error calling tool 'execute_query': {
+  "success": false,
+  "error": "IO Error: Could not set lock on file \"<repo-truncated>
+2.c 应用常驻连接（当前形状，baseline）
+2 应用常驻：MCP 查了 3 次，成功 0 次（0%），耗时 p50 8.8ms / max 27.0ms
+   失败样例：Error calling tool 'execute_query': {
+  "success": false,
+  "error": "IO Error: Could not set lock on file \"<repo-truncated>
+
+== 3. 反向：MCP 持只读连接时，前端（按请求 open/close）的写请求还能不能进 ==
+3.a MCP --no-ephemeral-connections（常驻只读连接）
+    MCP 存活期间前端 3 次写请求：['失败 7ms（IOException: IO Error: Could not set lock on file "<repo-truncated>"<repo-truncated>"<repo-truncated>
+    MCP 退出后前端写请求：成功 54ms
+3.b MCP 默认（ephemeral，查完即放）
+    MCP 存活期间前端 3 次写请求：['成功 16ms', '成功 11ms', '成功 10ms']
+    MCP 退出后前端写请求：成功 17ms
+
+== 4. mcp-server-motherduck 自己是常驻连接还是按查询开关 ==
+4.a 默认（本地只读文件）：查询后 MCP 进程仍持有库文件句柄 = False；此时另一个进程开库 = 成功
+4.b --no-ephemeral-connections：查询后 MCP 进程仍持有库文件句柄 = True（['8 -> <repo>/.tmp/duckdb_per_request/labflow.duckdb']）；此时另一个进程开库 = 失败
+4.c --read-write：查询后 MCP 进程仍持有库文件句柄 = True（['8 -> <repo>/.tmp/duckdb_per_request/labflow.duckdb']）；此时另一个进程开库 = 失败
+
+== 5. 两端都加退避重试：能不能都不报错、代价多少 ==
+5 应用：60 个请求，失败 0，重试 16 次；单次 open 18.29ms(p95 26.02)，请求耗时 71.12ms(p95 132.74, max 214.3)；锁占用 2248.3ms / 7870.7ms = 28.6%
+5 第二个进程（带退避重试，最多 25 次）158 次尝试：失败 0，重试过 52 次；耗时 p50 10.6ms / p95 69.6ms / max 1010.1ms
+  → 两侧都退避重试时能收敛到 0 报错，代价是撞锁的那次请求要等到对面放锁（延迟抖动）。
+
+# 实测结束
