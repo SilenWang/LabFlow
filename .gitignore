@@ -12,5 +12,6 @@ __pycache__/
 .pixi/*
 !.pixi/config.toml
 .tmp/
+spikes/d4/out/
 !spikes/duckdb_lock/logs/*.log
 !spikes/logs/*.log
