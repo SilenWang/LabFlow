@@ -1,15 +1,15 @@
-"""D0 预研：sqlite / seekdb / duckdb 三后端各自 ``create_all`` + 取回自增 id。
+"""D0 预研：sqlite / duckdb 两后端各自 ``create_all`` + 取回自增 id。
 
-结论先行：自增主键**没有**一个能覆盖三后端的写法，只能按后端分支。
+结论先行：自增主键**没有**一个能覆盖两后端的写法，只能按后端分支。
 
-- sqlite / seekdb(MySQL)：``Column(Integer, primary_key=True, autoincrement=True)``
-  （sqlite ``INTEGER PRIMARY KEY`` / MySQL ``AUTO_INCREMENT``）。
+- sqlite：``Column(Integer, primary_key=True, autoincrement=True)``
+  （sqlite ``INTEGER PRIMARY KEY``）。
 - duckdb：``Column(Integer, Sequence("<table>_id_seq"), primary_key=True,
   server_default=seq.next_value())``——duckdb 既没有 ``SERIAL``，也没有
   ``GENERATED ... AS IDENTITY``，只有 ``DEFAULT nextval('seq')``。
 
 脚本对每个后端把"分支写法"和"统一写法"都真跑一遍（``create_all`` + 插入 + 读回 id），
-形成对照矩阵；只有分支写法能三后端全部可行。退出码 0 = 矩阵与预期一致。
+形成对照矩阵；只有分支写法能两后端全部可行。退出码 0 = 矩阵与预期一致。
 
 顺带留一条给 D3（迁移脚本）的实测：显式插入 ``id=7`` 之后，duckdb 的序列不跟随，
 下一行自增拿到 ``id=3``——序列必须显式 restart 到 ``max(id)+1``。
@@ -34,10 +34,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sqlalchemy import Column, ForeignKey, Integer, MetaData, Sequence, String, create_engine, text
 from sqlalchemy.orm import Session, declarative_base
 
-BACKENDS = ("sqlite", "seekdb", "duckdb")
+BACKENDS = ("sqlite", "duckdb")
 
 # 每个后端上哪种写法才是对的；脚本据此断言矩阵。
-BRANCHED_FORM = {"sqlite": "autoincrement", "seekdb": "autoincrement", "duckdb": "sequence"}
+BRANCHED_FORM = {"sqlite": "autoincrement", "duckdb": "sequence"}
 FORMS = ("autoincrement", "sequence")
 
 
@@ -67,25 +67,12 @@ def _model(form):
 
 
 def _engine(backend, tmp):
-    if backend == "seekdb":
-        # 复用运行时那套：嵌入式 seekdb 起实例 → unix socket → pymysql 引擎。
-        from server.db import open_seekdb
-
-        _, opts = open_seekdb(db_dir=tmp / "seekdb")
-        return create_engine(
-            "mysql+pymysql://root@localhost/labflow",
-            connect_args={**opts, "charset": "utf8mb4"},
-        )
     scheme = "duckdb" if backend == "duckdb" else "sqlite"
     return create_engine(f"{scheme}:///{tmp / ('labflow.db' if scheme == 'sqlite' else 'labflow.duckdb')}")
 
 
 def _cleanup(backend, engine):
     engine.dispose()
-    if backend == "seekdb":
-        from server.db import close_seekdb
-
-        close_seekdb()
 
 
 def attempt(backend, form, tmp):
@@ -181,7 +168,7 @@ def main(argv=None):
 
     print(
         "\n结论:",
-        "三后端均可 create_all 并取回自增 id，但主键定义必须按后端分支"
+        "两后端均可 create_all 并取回自增 id，但主键定义必须按后端分支"
         if ok
         else "矩阵与预期不符，见上方 FAIL",
     )

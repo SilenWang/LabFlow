@@ -129,7 +129,7 @@ MCP 进程只依赖 `requests` 与 MCP SDK，不导入 `server.*`。要自证，
 ```bash
 pixi run mcp &            # 或由客户端拉起
 MCP_PID=$(pgrep -f "mcp/run.py")
-lsof -p "$MCP_PID" | grep -E "ducklake|\.db|\.duckdb|seekdb"   # 应当无输出
+lsof -p "$MCP_PID" | grep -E "ducklake|\.db|\.duckdb"   # 应当无输出
 ```
 
 `tests/test_mcp_server.py` 里有端到端用例，对着真实 HTTP 服务跑 tools/list 与只读工具调用。

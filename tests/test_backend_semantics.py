@@ -1,4 +1,4 @@
-"""seekdb 与 sqlite 的语义差异用例：两个后端下行为必须一致。"""
+"""后端语义用例：sqlite 与 ducklake 下文本上限、唯一冲突文案等行为必须一致。"""
 
 from server.config import FILENAME_MAX_LENGTH, TEXT_MAX_LENGTH
 
@@ -13,8 +13,8 @@ def _upload(server_url, session, batch_id, file_type, filename, content):
 
 class TestTextLength:
     def test_overlong_text_rejected(self, server_url, leader_session, batch):
-        # 列长即校验上限：超出时必须在入库前返回 400，否则 seekdb 会抛 1406（500），
-        # 而 sqlite 会照收不误。
+        # 列长即校验上限：超出时必须在入库前返回 400，不能靠数据库去拒
+        # （sqlite 会照收不误）。
         r = leader_session.post(f"{server_url}/api/projects", json={
             "name": "x" * (TEXT_MAX_LENGTH["project_name"] + 1),
         })
