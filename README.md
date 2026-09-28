@@ -75,9 +75,8 @@ sudo firewall-cmd --add-port=9002/tcp --permanent && sudo firewall-cmd --reload 
 
 ## 数据位置
 
-- 数据库（seekdb）：`data/seekdb/`
+- 数据库（sqlite，默认）：`data/labflow.db`
 - 数据库（ducklake）：`data/ducklake/`（catalog.sqlite + data/ + ids.sqlite）
-- 数据库（sqlite 回滚点）：`data/labflow.db`
 - 上传文件：`uploads/`
 - 备份产物：`backups/`
 

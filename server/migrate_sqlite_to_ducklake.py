@@ -4,8 +4,7 @@
 
 - 只搬数据不搬结构：目标表由 ``server.db`` 的 DuckLake 建表语句一次成型（与运行时同一条
   ``ATTACH`` / WAL / ``search_path`` 路径），不额外定义 schema。
-- 读用 stdlib ``sqlite3``，写走 ``server.db.make_ducklake_engine()``；**不引入 pymysql /
-  seekdb**（那条线已作废）。
+- 读用 stdlib ``sqlite3``，写走 ``server.db.make_ducklake_engine()``；不引入额外数据库依赖。
 - 逐表单事务；显式带上 id，原样保留历史主键。
 - 目标任一表非空即拒绝执行，避免二次导入写脏。
 - 写入前先比对源/目标列集合：源库带模型里已移除的历史列（结构漂移）时以退出码 2 中止，
@@ -68,8 +67,7 @@ class TargetNotEmpty(MigrationError):
         )
 
 
-# 校验和函数与 P3 的 migrate_sqlite_to_seekdb.py 刻意保持一致（同一份算法），但这里
-# 复制一份而不是 import：那个模块顶部 import pymysql，本脚本不能把 seekdb 依赖拉进来。
+# 校验和算法独立一份：迁移脚本只依赖 stdlib，不去 import 别的迁移模块。
 def _feed(digest, payload):
     # 长度前缀编码，避免值里出现分隔符时产生歧义。
     digest.update(str(len(payload)).encode("ascii"))

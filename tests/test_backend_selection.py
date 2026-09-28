@@ -28,7 +28,7 @@ def test_unknown_backend_is_rejected():
     assert "sqlite" in result.stderr, "报错要列出可选值"
 
 
-@pytest.mark.parametrize("backend", ["sqlite", "seekdb", "ducklake"])
+@pytest.mark.parametrize("backend", ["sqlite", "ducklake"])
 def test_known_backends_are_accepted(backend):
     result = _import_config(backend)
     assert result.returncode == 0, result.stderr

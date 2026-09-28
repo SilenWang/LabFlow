@@ -27,31 +27,15 @@ from server.utils import now_iso, today_token, quote_bytes
 from server.validators import safe_filename, assert_date, clean_text
 
 
-# 唯一约束冲突 -> 面向用户的文案。sqlite 报 "UNIQUE constraint failed: 表.列"，
-# MySQL/seekdb 报错误码 1062 + 索引名，两边都收敛到同一条文案。
+# 唯一约束冲突 -> 面向用户的文案：按报错里的"表.列"匹配。
 UNIQUE_CONFLICT_MESSAGES = {
     "batches.name": "批次名称已存在，批次名称必须全系统唯一（包括回收站）",
     "projects.name": "项目名称已存在",
 }
 
-# seekdb 的 1062 只给索引名，映射回 sqlite 的“表.列”写法后共用上面的文案。
-UNIQUE_INDEX_TO_KEY = {
-    "uq_batches_name": "batches.name",
-    "uq_projects_name": "projects.name",
-    "uq_users_username": "users.username",
-}
 
 def unique_conflict_message(exc):
-    orig = getattr(exc, "orig", None)
-    args = getattr(orig, "args", None) or ()
-    if args and args[0] == 1062:
-        detail = str(args[-1])
-        for index, key in UNIQUE_INDEX_TO_KEY.items():
-            if index in detail:
-                detail = key
-                break
-    else:
-        detail = str(exc)
+    detail = str(exc)
     for key, message in UNIQUE_CONFLICT_MESSAGES.items():
         if key in detail:
             return message

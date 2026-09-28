@@ -14,7 +14,7 @@ CHECK / sequence 中的任何一个（NOT NULL 除外），所以：
    `serializers` 里的 join 全部照跑；`create_all` 只要把约束从建表语句里摘掉就能幂等成型。
 
 一句话：**DuckLake 换掉的不只是引擎，是模型层的一整层保证；D1 必须返工一版**（要改哪几处见下），
-sqlite / seekdb 两个后端不受影响。
+sqlite 后端不受影响。
 
 ## 怎么复现
 
@@ -96,7 +96,7 @@ pixi run dl0-spike     # spikes/dl0_ducklake_models.py，输出留档 spikes/log
 
 ## 必须改哪几处（继续走 DuckLake 的话）
 
-| 位置 | 改什么 | 对 sqlite / seekdb 的影响 |
+| 位置 | 改什么 | 对 sqlite 的影响 |
 | --- | --- | --- |
 | `server/models.py` | 第 3 个分支：DuckLake 的 id 不自动生成、不建 PK/UNIQUE/FK | 无（走原分支） |
 | `server/db.py` | `ducklake` 分支：`ATTACH IF NOT EXISTS 'ducklake:sqlite:…'`、catalog 开 WAL、`SET search_path`、建表走元数据副本 | 无 |
@@ -104,7 +104,7 @@ pixi run dl0-spike     # spikes/dl0_ducklake_models.py，输出留档 spikes/log
 | 新增一个小模块 | 辅助 SQLite 计数器（id 分配），或等价的应用层分配器 | 无 |
 
 工作量估：models/create_all 分支 0.5 天 + id 分配 0.5 天 + 应用层唯一校验与 409 0.5–1 天 + db.py attach/WAL 0.5 天
-≈ **2 人天以内**（D2 的并发重试另算），**但换来的是比 sqlite/seekdb 更弱的保证**。
+≈ **2 人天以内**（D2 的并发重试另算），**但换来的是比 sqlite 更弱的保证**。
 
 ## 顺带实测到的三个坑（给 D2）
 

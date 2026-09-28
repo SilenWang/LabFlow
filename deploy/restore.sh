@@ -9,27 +9,19 @@ cd "$(dirname "$0")/.."
 
 BACKUP="${1:?用法: deploy/restore.sh <备份目录> <新目录>}"
 TARGET="${2:?用法: deploy/restore.sh <备份目录> <新目录>}"
-DATABASE="${LABFLOW_DB_NAME:-labflow}"
 
-DIRECT_DUMP=""
-if [ -f "$BACKUP" ]; then
-  # 兼容老用法：直接给一个 seekdb 的 .sql dump。
-  DIRECT_DUMP="$BACKUP"
-elif [ ! -d "$BACKUP" ]; then
+if [ ! -d "$BACKUP" ]; then
   echo "找不到备份目录：$BACKUP" >&2
   exit 1
 fi
 
 BACKEND=""
-if [ -n "$DIRECT_DUMP" ]; then
-  BACKEND="seekdb"
-elif [ -f "$BACKUP/manifest.txt" ]; then
+if [ -f "$BACKUP/manifest.txt" ]; then
   BACKEND="$(sed -n 's/^backend=//p' "$BACKUP/manifest.txt" | tail -n 1)"
 fi
 if [ -z "$BACKEND" ]; then
   # 老备份目录没有 backend= 字段，按目录内容认。
   if [ -d "$BACKUP/ducklake" ]; then BACKEND="ducklake"
-  elif [ -f "$BACKUP/$DATABASE.sql" ]; then BACKEND="seekdb"
   elif [ -f "$BACKUP/labflow.db" ]; then BACKEND="sqlite"
   fi
 fi
@@ -108,32 +100,8 @@ PY
     restore_uploads
     ;;
 
-  seekdb)
-    DUMP="${DIRECT_DUMP:-$BACKUP/$DATABASE.sql}"
-    [ -f "$DUMP" ] || { echo "找不到 dump 文件：$DUMP" >&2; exit 1; }
-    DB_DIR="$TARGET/data/seekdb"
-    if [ -e "$DB_DIR" ]; then
-      echo "目标目录已存在，请换一个空的：$DB_DIR" >&2
-      exit 1
-    fi
-    mkdir -p "$DB_DIR"
-
-    echo "1/3 还原 dump → $DB_DIR"
-    pixi run seekdb-restore "$DB_DIR" "$DUMP"
-
-    echo "2/3 校验行数"
-    if [ -f "$BACKUP/row-counts.json" ]; then
-      pixi run python deploy/verify_seekdb.py "$DB_DIR" "$DATABASE" --expect "$BACKUP/row-counts.json"
-    else
-      pixi run python deploy/verify_seekdb.py "$DB_DIR" "$DATABASE"
-    fi
-
-    echo "3/3 还原上传文件"
-    restore_uploads
-    ;;
-
   *)
-    echo "认不出这份备份的后端（没有 manifest.txt，也没有 ducklake/、$DATABASE.sql、labflow.db）" >&2
+    echo "认不出这份备份的后端（没有 manifest.txt，也没有 ducklake/、labflow.db）" >&2
     exit 1
     ;;
 esac

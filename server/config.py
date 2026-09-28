@@ -11,9 +11,9 @@ HOST = "0.0.0.0"
 PORT = int(__import__("os").environ.get("LABFLOW_PORT", "9002"))
 BASE_PATH = (__import__("os").environ.get("LABFLOW_BASE_PATH") or "").rstrip("/")
 
-# 存储后端：sqlite（默认，便于回滚）/ seekdb / ducklake（DuckLake + SQLite catalog）。
+# 存储后端：sqlite（默认，便于回滚）/ ducklake（DuckLake + SQLite catalog）。
 # 放在 config 里供 db.py 与 models.py 共用：两者都要按后端分支（引擎参数 / 主键定义）。
-DB_BACKENDS = ("sqlite", "seekdb", "ducklake")
+DB_BACKENDS = ("sqlite", "ducklake")
 DB_BACKEND = os.environ.get("LABFLOW_DB", "sqlite").strip().lower()
 # 写错后端名（例如老名字 duckdb）以前会静默落到 sqlite 分支，起来看着能用、其实换了个库。
 # 这里直接拒绝启动，让配置错误当场可见。
@@ -36,7 +36,7 @@ DATE_FIELDS = {
 }
 
 # 文本上限：models 里的 VARCHAR 长度与 handler 的输入校验共用同一份，
-# 避免两边漂移（例如输入放宽到 120 而列还停在 80）导致 seekdb 下报 1406。
+# 避免两边漂移（例如输入放宽到 120 而列还停在 80）。
 TEXT_MAX_LENGTH = {
     "username": 60,
     "display_name": 60,

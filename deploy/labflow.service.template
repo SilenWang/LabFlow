@@ -13,7 +13,7 @@ WorkingDirectory=__LABFLOW_DIR__
 ExecStart=__PIXI__ run serve
 Restart=on-failure
 RestartSec=2
-# 停止时先给进程组 SIGTERM（服务会释放 seekdb 实例），超时再强杀
+# 停止时先给进程组 SIGTERM（服务会释放数据库引擎），超时再强杀
 KillMode=control-group
 TimeoutStopSec=30
 

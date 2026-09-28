@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
-# LabFlow 备份：按后端分三条路，产物都是一份目录 + 校验清单，能在干净目录还原。
+# LabFlow 备份：按后端分两条路，产物都是一份目录 + 校验清单，能在干净目录还原。
 #
 #   - ducklake：DuckDB/DuckLake 带 WAL，**不能拷活文件** → 停服拷贝整个 data/ducklake。
 #   - sqlite  ：VACUUM INTO 做一致性快照（在线安全，不是拷活文件）。
-#   - seekdb  ：seekdb-dump 导出（在线可跑）。
 #
 # 用法：deploy/backup.sh [备份根目录]     默认 backups/
 set -euo pipefail
@@ -125,53 +124,17 @@ PY
     } > "$OUT/manifest.txt"
     ;;
 
-  seekdb)
-    DB_DIR="${LABFLOW_SEEKDB_DIR:-data/seekdb}"
-    DATABASE="${LABFLOW_DB_NAME:-labflow}"
-    if [ ! -d "$DB_DIR" ]; then
-      echo "找不到 seekdb 数据目录：$DB_DIR（服务是否已用 LABFLOW_DB=seekdb 启动过？）" >&2
-      exit 1
-    fi
-
-    echo "1/4 导出 seekdb → $OUT/$DATABASE.sql"
-    pixi run seekdb-dump "$DB_DIR" --database "$DATABASE" -o "$OUT/$DATABASE.sql"
-
-    echo "2/4 记录行数（供还原时校验）"
-    pixi run python deploy/verify_seekdb.py "$DB_DIR" "$DATABASE" > "$OUT/row-counts.json"
-    cat "$OUT/row-counts.json"
-
-    echo "3/4 打包上传文件 → $OUT/uploads.tar.gz"
-    tar czf "$OUT/uploads.tar.gz" uploads
-
-    echo "4/4 生成校验清单"
-    SEEKDB_VERSION="$(pixi run python -c 'import importlib.metadata as m; print(m.version("pylibseekdb"))')"
-    {
-      echo "created_at=$STAMP"
-      echo "backend=seekdb"
-      echo "seekdb_dir=$DB_DIR"
-      echo "database=$DATABASE"
-      echo "seekdb_version=$SEEKDB_VERSION"
-    } > "$OUT/manifest.txt"
-
-    # 有 sqlite 只读回滚点时一并收进备份，方便一键回滚
-    if [ -f data/labflow.db ]; then
-      cp data/labflow.db "$OUT/labflow.db"
-    fi
-    ;;
-
   *)
-    echo "不认识的 LABFLOW_DB=$BACKEND（可选：ducklake / sqlite / seekdb）" >&2
+    echo "不认识的 LABFLOW_DB=$BACKEND（可选：ducklake / sqlite）" >&2
     exit 1
     ;;
 esac
 
-if [ "$BACKEND" = "sqlite" ] || [ "$BACKEND" = "ducklake" ]; then
-  if [ -d uploads ]; then
-    echo "打包上传文件 → $OUT/uploads.tar.gz"
-    tar czf "$OUT/uploads.tar.gz" uploads
-  else
-    echo "没有 uploads 目录，跳过上传文件打包"
-  fi
+if [ -d uploads ]; then
+  echo "打包上传文件 → $OUT/uploads.tar.gz"
+  tar czf "$OUT/uploads.tar.gz" uploads
+else
+  echo "没有 uploads 目录，跳过上传文件打包"
 fi
 
 ( cd "$OUT" && find . -maxdepth 1 -type f ! -name SHA256SUMS -printf '%P\n' | sort | xargs sha256sum > SHA256SUMS )

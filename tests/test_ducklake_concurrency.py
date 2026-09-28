@@ -1,6 +1,6 @@
 """D2 并发与一致性加固的用例（DL1 的三条硬要求 + 应用层 id 计数器 + 双进程读写）。
 
-只在 LABFLOW_DB=ducklake 下有意义：sqlite / seekdb 自己会等锁、自己发号，
+只在 LABFLOW_DB=ducklake 下有意义：sqlite 自己会等锁、自己发号，
 这些用例整体跳过。
 """
 
@@ -22,7 +22,7 @@ from server.utils import now_iso
 
 pytestmark = pytest.mark.skipif(
     db_mod.DB_BACKEND != "ducklake",
-    reason="并发加固只对 DuckLake 后端有意义（sqlite/seekdb 由引擎自己排队与发号）",
+    reason="并发加固只对 DuckLake 后端有意义（sqlite 由引擎自己排队与发号）",
 )
 
 

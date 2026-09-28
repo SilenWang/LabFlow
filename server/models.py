@@ -7,8 +7,8 @@ Base = declarative_base()
 
 
 def _pk(table):
-    # 自增主键没有三后端通用的写法：sqlite 的 INTEGER PRIMARY KEY 与 MySQL 的 AUTO_INCREMENT
-    # 都由 autoincrement=True 表达；DuckLake 则两个都没有——它不支持 sequence（连
+    # 自增主键没有两后端通用的写法：sqlite 的 INTEGER PRIMARY KEY 由 autoincrement=True
+    # 表达；DuckLake 则没有——它不支持 sequence（连
     # CREATE SEQUENCE 都拒），PK/UNIQUE/FK 也建不了，所以 id 只能交给应用层分配
     # （db.py 的 before_insert + 辅助 SQLite 计数器）。实测见 docs/DL0-DuckLake模型层核实.md。
     if DB_BACKEND == "ducklake":
@@ -16,19 +16,12 @@ def _pk(table):
     return Column(Integer, primary_key=True, autoincrement=True)
 
 
-def _unique_text(length):
-    # 唯一性文本列在 MySQL/seekdb 下显式 utf8mb4_bin：默认的 utf8mb4_general_ci
-    # 大小写不敏感，会把 "Batch-001" 与 "batch-001" 判成重复，偏离 sqlite 语义。
-    # sqlite 的默认 BINARY 排序本就是区分大小写的，故只在 mysql 方言上带 collation。
-    return String(length).with_variant(String(length, collation="utf8mb4_bin"), "mysql")
-
-
 class User(Base):
     __tablename__ = "users"
     __table_args__ = (UniqueConstraint("username", name="uq_users_username"),)
 
     id = _pk("users")
-    username = Column(_unique_text(TEXT_MAX_LENGTH["username"]), nullable=False)
+    username = Column(String(TEXT_MAX_LENGTH["username"]), nullable=False)
     display_name = Column(String(TEXT_MAX_LENGTH["display_name"]), nullable=False)
     role = Column(String(20), nullable=False)
     password_salt = Column(String(64), nullable=False)
@@ -42,7 +35,7 @@ class Project(Base):
     __table_args__ = (UniqueConstraint("name", name="uq_projects_name"),)
 
     id = _pk("projects")
-    name = Column(_unique_text(TEXT_MAX_LENGTH["project_name"]), nullable=False)
+    name = Column(String(TEXT_MAX_LENGTH["project_name"]), nullable=False)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(String(32), nullable=False)
     deleted_at = Column(String(32), nullable=True)
@@ -57,7 +50,7 @@ class Batch(Base):
     id = _pk("batches")
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
     batch_no = Column(String(TEXT_MAX_LENGTH["batch_no"]), nullable=False)
-    name = Column(_unique_text(TEXT_MAX_LENGTH["name"]), nullable=False)
+    name = Column(String(TEXT_MAX_LENGTH["name"]), nullable=False)
     remark = Column(String(TEXT_MAX_LENGTH["remark"]), nullable=True)
     synthesis_submitted_date = Column(String(10), nullable=True)
     synthesis_completed_date = Column(String(10), nullable=True)

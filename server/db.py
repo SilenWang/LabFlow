@@ -19,7 +19,6 @@ from server.utils import ensure_dirs, now_iso
 
 _engine = None
 _Session = None
-_seekdb_instance = None
 _attach_lock = threading.Lock()
 # 同进程的写提交串行化：DuckLake 的提交要抢 catalog 的 SQLite 写锁，多个线程
 # 同时提交会互相撞（DL1 实测连接池 3 线程下 74.3%）。串行之后进程内基本不撞，
@@ -60,16 +59,9 @@ _NAME_CLAIMS_DDL = (
 )
 
 # DB_BACKEND 定义在 config.py（models.py 也要用来选主键写法），这里沿用同名。
-# sqlite 为默认后端，便于回滚；LABFLOW_DB=seekdb|ducklake 切到对应后端。
-# 列长必须显式写在 models 里：seekdb 走 MySQL 协议，裸 VARCHAR 会被直接拒。
+# sqlite 为默认后端，便于回滚；LABFLOW_DB=ducklake 切到 DuckLake。
 
-SEEKDB_DATABASE = "labflow"
 DUCKLAKE_ALIAS = "dlk"
-
-
-def _seekdb_dir():
-    # 跟着 DB_PATH 走，测试里按用例切换临时目录时自动隔离。
-    return Path(DB_PATH).parent / "seekdb"
 
 
 def _ducklake_dir(ducklake_dir=None):
@@ -527,66 +519,20 @@ for _model in (User, Project, Batch, FileVersion):
     event.listen(_model, "before_insert", _assign_app_id)
 
 
-def open_seekdb(db_dir=None, database=SEEKDB_DATABASE):
-    """打开嵌入式 seekdb 实例，返回 (instance, pymysql 连接参数)。
-
-    db_dir 缺省跟随 DB_PATH；迁移脚本要显式指定目标目录，故暴露为公共入口。
-    """
-    global _seekdb_instance
-    import pymysql
-    import pylibseekdb as seekdb
-
-    db_dir = Path(db_dir) if db_dir is not None else _seekdb_dir()
-    db_dir.mkdir(parents=True, exist_ok=True)
-    _seekdb_instance = seekdb.open(db_dir=str(db_dir))
-    opts = dict(_seekdb_instance.connection_options())
-    conn = pymysql.connect(**opts, charset="utf8mb4", autocommit=True)
-    try:
-        conn.cursor().execute(f"CREATE DATABASE IF NOT EXISTS `{database}`")
-    finally:
-        conn.close()
-    return _seekdb_instance, opts
-
-
-def close_seekdb():
-    global _seekdb_instance
-    instance, _seekdb_instance = _seekdb_instance, None
-    if instance is None:
-        return
-    instance.close()
-    # pylibseekdb 的嵌入式服务由 C 库直接 fork 出子进程，close() 只让它退出，
-    # 之后会变成僵尸；Python 不会自动回收。这里兜底 reap，避免残留子进程。
-    for _ in range(20):
-        try:
-            if os.waitpid(-1, os.WNOHANG)[0] != 0:
-                continue
-        except ChildProcessError:
-            return
-        time.sleep(0.01)
-
-
 def _shutdown():
     global _engine
     if _engine is not None:
         _engine.dispose()
-    close_seekdb()
 
 
-# 进程退出（含异常路径）时释放 seekdb，避免残留实例/子进程。
+# 进程退出（含异常路径）时释放引擎，让 DuckDB 的文件锁及时放开。
 atexit.register(_shutdown)
 
 
 def get_engine():
     global _engine
     if _engine is None:
-        if DB_BACKEND == "seekdb":
-            _, opts = open_seekdb()
-            _engine = create_engine(
-                f"mysql+pymysql://root@localhost/{SEEKDB_DATABASE}",
-                echo=False,
-                connect_args={**opts, "charset": "utf8mb4"},
-            )
-        elif DB_BACKEND == "ducklake":
+        if DB_BACKEND == "ducklake":
             _engine = make_ducklake_engine()
         else:
             _engine = create_engine(
@@ -632,7 +578,6 @@ def init_db():
     global _engine, _Session
     if _engine is not None:
         _engine.dispose()
-    close_seekdb()
     _engine = None
     _Session = None
     ensure_dirs()

@@ -8,7 +8,7 @@ from server.handler import LabFlowHandler
 
 def _stop(signum, frame):
     # systemd stop 发的是 SIGTERM，默认会直接终止进程、跳过 atexit，
-    # 这里转成正常退出，让 seekdb 实例和它的子进程被干净地释放。
+    # 这里转成正常退出，让 atexit 里的引擎释放（放开 DuckDB 文件锁）跑完。
     raise SystemExit(0)
 
 
