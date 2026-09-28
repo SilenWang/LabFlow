@@ -14,6 +14,7 @@ from pathlib import Path
 
 import pytest
 import requests as req
+from sqlalchemy import text
 
 import server.db as db_mod
 from server.models import Batch, Project
@@ -245,8 +246,8 @@ class TestIdCounter:
             s.add(Project(id=9001, name="迁移导入的项目", created_by=1, created_at=now_iso()))
 
         counters = db_mod.resync_id_counters()
-        assert counters["projects"] == 9002
-        assert db_mod.resync_id_counters()["projects"] == 9002, "重复对齐不能把计数器推回去"
+        assert counters["projects"] == 9001
+        assert db_mod.resync_id_counters()["projects"] == 9001, "重复对齐不能把计数器推回去"
 
         with db_mod.session() as s:
             fresh = Project(name="续号的新项目", created_by=1, created_at=now_iso())
@@ -286,6 +287,99 @@ class TestIdCounter:
             th.join()
         assert errors == []
         assert len(ids) == len(set(ids)) == 200
+
+    def test_stale_counter_does_not_reissue_ids(self, server_url):
+        """计数器被拨回去时不能发出已存在的 id（DuckLake 没有主键兜底，重号会静默入库）。"""
+        with db_mod.session() as s:
+            s.add(Project(id=5001, name="老项目", created_by=1, created_at=now_iso()))
+
+        conn = db_mod._counter_conn()
+        try:
+            conn.execute("UPDATE id_seq SET next = 3 WHERE name = 'projects'")
+        finally:
+            conn.close()
+
+        with db_mod.session() as s:
+            fresh = Project(name="拨回计数器之后的新项目", created_by=1, created_at=now_iso())
+            s.add(fresh)
+        assert fresh.id > 5001
+
+        with db_mod.session() as s:
+            ids = [row[0] for row in s.execute(text("SELECT id FROM projects ORDER BY id")).all()]
+        assert len(ids) == len(set(ids)), f"出现重复 id：{ids}"
+
+
+class TestNameClaims:
+    """名字唯一性落在辅助 SQLite 的占位表上：改名、失败回滚、历史数据都要覆盖。"""
+
+    def test_rename_checks_and_moves_the_claim(self, server_url, leader_session, project):
+        first = leader_session.post(f"{server_url}/api/batches", json={
+            "project_id": project["id"], "batch_no": "RN-1", "name": "改名用的批次 A",
+        }).json()["batch"]
+        second = leader_session.post(f"{server_url}/api/batches", json={
+            "project_id": project["id"], "batch_no": "RN-2", "name": "改名用的批次 B",
+        }).json()["batch"]
+
+        # 改成别人占着的名字 → 409，且自己原来的名字还在
+        r = leader_session.patch(f"{server_url}/api/batches/{second['id']}", json={"name": "改名用的批次 A"})
+        assert r.status_code == 409, r.text
+        with db_mod.session() as s:
+            assert s.query(Batch).filter(Batch.id == second["id"]).one().name == "改名用的批次 B"
+
+        # 改成新名字 → 200；旧名字随之空出来，能被别的批次用
+        r = leader_session.patch(f"{server_url}/api/batches/{second['id']}", json={"name": "改名后的批次 B"})
+        assert r.status_code == 200, r.text
+        r = leader_session.post(f"{server_url}/api/batches", json={
+            "project_id": project["id"], "batch_no": "RN-3", "name": "改名用的批次 B",
+        })
+        assert r.status_code == 201, r.text
+
+        # 名字没变（原地提交同名）不能被自己的占位挡成 409
+        assert leader_session.patch(
+            f"{server_url}/api/batches/{first['id']}", json={"name": "改名用的批次 A"}
+        ).status_code == 200
+
+    def test_claim_is_released_when_the_write_fails(self, server_url, test_dir, leader_session, monkeypatch):
+        """写失败（这里用极短重试 + 外部占锁逼出 500）要把占位放掉，名字不能永久锁死。"""
+        monkeypatch.setattr(db_mod, "COMMIT_RETRY_ATTEMPTS", 1)
+        holder = _start_lock_holder(test_dir, 1.0)
+        try:
+            r = leader_session.post(f"{server_url}/api/projects", json={"name": "失败后应释放的名字"})
+        finally:
+            holder.wait()
+        assert r.status_code == 500, r.text
+
+        r = leader_session.post(f"{server_url}/api/projects", json={"name": "失败后应释放的名字"})
+        assert r.status_code == 201, "占位没释放，名字被永久锁死"
+
+    def test_startup_seeds_claims_from_existing_rows(self, server_url, leader_session):
+        """老库/迁移导入的行没有占位：启动对齐后，同名新增必须 409。"""
+        with db_mod.session() as s:
+            s.add(Project(id=6001, name="历史项目", created_by=1, created_at=now_iso()))
+        # 清掉刚占的位，模拟"数据在、占位表没跟上"
+        conn = db_mod._counter_conn()
+        try:
+            conn.execute("DELETE FROM name_claims WHERE scope = 'projects.name' AND name = '历史项目'")
+        finally:
+            conn.close()
+
+        db_mod.resync_name_claims()
+        r = leader_session.post(f"{server_url}/api/projects", json={"name": "历史项目"})
+        assert r.status_code == 409, r.text
+
+    def test_startup_drops_orphan_claims(self, server_url, leader_session):
+        """进程崩在"占了位还没写库"之间会留下孤儿占位，启动对齐要把它清掉。"""
+        conn = db_mod._counter_conn()
+        try:
+            conn.execute(
+                "INSERT OR IGNORE INTO name_claims (scope, name) VALUES ('projects.name', '孤儿占位')"
+            )
+        finally:
+            conn.close()
+
+        db_mod.resync_name_claims()
+        r = leader_session.post(f"{server_url}/api/projects", json={"name": "孤儿占位"})
+        assert r.status_code == 201, r.text
 
 
 class TestBackupCopy:

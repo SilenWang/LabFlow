@@ -66,6 +66,11 @@ pixi run dl0-spike     # spikes/dl0_ducklake_models.py，输出留档 spikes/log
   实测 8.2 ms/次；外键侧 `create_batch` 本来就已经查过 `project`，这条现有代码已覆盖大部分。
 - 这样保住的是**语义**，保不住的是**保证**：校验与 `INSERT` 提交之间有窗口，两个进程可同时通过。
   想要 DB 级硬保证只有一条路——把唯一键放进一个辅助 SQLite 文件（唯一索引），但就成了双写、没有跨库事务。
+- **D2 已按最后那条路落地**：占位表 `name_claims(scope, name)` 与 id 计数器放在同一个辅助 SQLite
+  （`data/ducklake/ids.sqlite`），`UNIQUE(scope, name)` 的插入是原子的，"查过 → 插入"之间没有窗口；
+  占位与 DuckLake 写入不算同一个事务，所以写失败/回滚时按会话日志放掉占位，启动时
+  `resync_name_claims()` 再按真实数据重建（顺带清掉崩溃留下的孤儿占位）。回归见
+  `tests/test_zz_review_probe.py`、`tests/test_ducklake_concurrency.py::TestNameClaims`。
 - 顺带：D1 给 duckdb 补的 409 文案映射（`handler.py` 里按触发语句猜表名那段）在 **DuckLake 上是死代码**，
   永远不会触发 `IntegrityError`；409 必须由应用层校验抛 `RequestError`。
 

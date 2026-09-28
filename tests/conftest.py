@@ -61,6 +61,10 @@ def _patch_config_refs(test_dir):
     # Re-init auth secret
     import server.utils as utils_mod
     utils_mod.ensure_dirs()
+    # auth 是 `from server.config import SECRET_PATH` 拿的值，只改 cfg 不够；
+    # 不跟着改的话，前面 reload 过 auth 的用例（tests/test_utils.py）会把这里的
+    # 密钥路径留在已删除的临时目录上，后面的用例直接 FileNotFoundError。
+    auth_mod.SECRET_PATH = secret_path
     auth_mod.SECRET = auth_mod.get_secret()
 
     return data_dir, upload_dir, static_dir, db_path

@@ -15,7 +15,7 @@ from server.auth import read_signed, verify_password, password_hash, sign_payloa
 from server.config import DB_BACKEND, ROLES, DATE_FIELDS, TEXT_FIELDS, FILE_FIELDS, FILE_LABELS, FILE_EXTENSIONS
 from server.config import TEXT_MAX_LENGTH, FILENAME_MAX_LENGTH
 from server.config import STATIC_DIR, UPLOAD_DIR, BASE_DIR, BASE_PATH
-from server.db import session as db_session
+from server.db import claim_name, release_name, session as db_session
 from server.exceptions import RequestError
 from server.models import User, Project, Batch, FileVersion
 from server.router import route_api
@@ -59,18 +59,21 @@ def unique_conflict_message(exc):
 
 
 def assert_name_unique(session, model, name, key, exclude_id=None):
-    """DuckLake 没有唯一约束（DL0 实测），全系统唯一只能在写之前自己查一遍。
+    """DuckLake 没有唯一约束（DL0 实测），唯一性下沉到辅助 SQLite 的占位表。
 
-    其它后端有 DB 唯一约束兜底，这里直接放过去，保持行为与改动面不变。
-    ponytail: 查与写之间有窗口，没有 DB 兜底；要硬保证得把唯一键放进辅助 SQLite
-    文件（双写、无跨库事务），代价见 docs/DL0-DuckLake模型层核实.md。
+    占位表和 id 计数器同一个库，带 (scope, name) 的 UNIQUE：插入是原子操作，"查过 →
+    写入"之间没有窗口，并发的第二个请求在这一步就撞 IntegrityError，对外 409。
+    作用域与原来的 SELECT 一致——全系统唯一（含回收站）、区分大小写；写入失败或
+    回滚时由 session 收尾按日志放掉占位。其它后端有 DB 唯一约束兜底，直接放过去。
     """
     if DB_BACKEND != "ducklake":
         return
-    query = session.query(model.id).filter(model.name == name)
     if exclude_id is not None:
-        query = query.filter(model.id != exclude_id)
-    if query.first() is not None:
+        # 改名：先放掉自己的旧名占位（同一个名字也要先放再占，否则会撞自己）。
+        old_name = session.query(model.name).filter(model.id == exclude_id).scalar()
+        if old_name is not None:
+            release_name(session, key, old_name)
+    if not claim_name(session, key, name):
         raise RequestError(409, UNIQUE_CONFLICT_MESSAGES[key])
 
 

@@ -16,8 +16,10 @@ def utils(test_dir):
     (test_dir / "data").mkdir(parents=True, exist_ok=True)
 
     import server.auth as auth
-    import importlib
-    importlib.reload(auth)
+    # 不要 reload server.auth：那会把 conftest 打的快速口令哈希补丁一起重置成真的
+    # pbkdf2(180000)，后面所有用例登录都会 401。签名密钥跟着 test_dir 走就够了。
+    auth.SECRET_PATH = cfg.SECRET_PATH
+    auth.SECRET = auth.get_secret()
 
     from server.validators import safe_filename, assert_date, clean_text
     from server.auth import password_hash, verify_password, sign_payload, read_signed

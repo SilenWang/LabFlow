@@ -13,7 +13,14 @@ BASE_PATH = (__import__("os").environ.get("LABFLOW_BASE_PATH") or "").rstrip("/"
 
 # 存储后端：sqlite（默认，便于回滚）/ seekdb / ducklake（DuckLake + SQLite catalog）。
 # 放在 config 里供 db.py 与 models.py 共用：两者都要按后端分支（引擎参数 / 主键定义）。
+DB_BACKENDS = ("sqlite", "seekdb", "ducklake")
 DB_BACKEND = os.environ.get("LABFLOW_DB", "sqlite").strip().lower()
+# 写错后端名（例如老名字 duckdb）以前会静默落到 sqlite 分支，起来看着能用、其实换了个库。
+# 这里直接拒绝启动，让配置错误当场可见。
+if DB_BACKEND not in DB_BACKENDS:
+    raise RuntimeError(
+        f"LABFLOW_DB={DB_BACKEND!r} 不认识，可选：{' / '.join(DB_BACKENDS)}"
+    )
 
 ROLES = {
     "manager": "总负责人",
