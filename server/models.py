@@ -1,9 +1,19 @@
 from sqlalchemy import Column, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import declarative_base, relationship
 
-from server.config import TEXT_MAX_LENGTH
+from server.config import DB_BACKEND, TEXT_MAX_LENGTH
 
 Base = declarative_base()
+
+
+def _pk(table):
+    # 自增主键没有三后端通用的写法：sqlite 的 INTEGER PRIMARY KEY 与 MySQL 的 AUTO_INCREMENT
+    # 都由 autoincrement=True 表达；DuckLake 则两个都没有——它不支持 sequence（连
+    # CREATE SEQUENCE 都拒），PK/UNIQUE/FK 也建不了，所以 id 只能交给应用层分配
+    # （db.py 的 before_insert + 辅助 SQLite 计数器）。实测见 docs/DL0-DuckLake模型层核实.md。
+    if DB_BACKEND == "ducklake":
+        return Column(Integer, primary_key=True, autoincrement=False)
+    return Column(Integer, primary_key=True, autoincrement=True)
 
 
 def _unique_text(length):
@@ -17,7 +27,7 @@ class User(Base):
     __tablename__ = "users"
     __table_args__ = (UniqueConstraint("username", name="uq_users_username"),)
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = _pk("users")
     username = Column(_unique_text(TEXT_MAX_LENGTH["username"]), nullable=False)
     display_name = Column(String(TEXT_MAX_LENGTH["display_name"]), nullable=False)
     role = Column(String(20), nullable=False)
@@ -31,7 +41,7 @@ class Project(Base):
     __tablename__ = "projects"
     __table_args__ = (UniqueConstraint("name", name="uq_projects_name"),)
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = _pk("projects")
     name = Column(_unique_text(TEXT_MAX_LENGTH["project_name"]), nullable=False)
     created_by = Column(Integer, ForeignKey("users.id"), nullable=False)
     created_at = Column(String(32), nullable=False)
@@ -44,7 +54,7 @@ class Batch(Base):
     __tablename__ = "batches"
     __table_args__ = (UniqueConstraint("name", name="uq_batches_name"),)
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = _pk("batches")
     project_id = Column(Integer, ForeignKey("projects.id"), nullable=False)
     batch_no = Column(String(TEXT_MAX_LENGTH["batch_no"]), nullable=False)
     name = Column(_unique_text(TEXT_MAX_LENGTH["name"]), nullable=False)
@@ -66,7 +76,7 @@ class Batch(Base):
 class FileVersion(Base):
     __tablename__ = "file_versions"
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = _pk("file_versions")
     batch_id = Column(Integer, ForeignKey("batches.id"), nullable=False)
     file_type = Column(String(32), nullable=False)
     original_name = Column(String(255), nullable=False)

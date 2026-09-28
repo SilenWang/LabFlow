@@ -1,32 +1,134 @@
 import atexit
 import os
+import sqlite3
 import time
 from contextlib import contextmanager
 from pathlib import Path
 
-from sqlalchemy import create_engine, event, inspect, text
+from sqlalchemy import MetaData, create_engine, event, inspect, text
 from sqlalchemy.orm import sessionmaker
+from sqlalchemy.schema import ForeignKeyConstraint, PrimaryKeyConstraint, UniqueConstraint
 
 from server.auth import password_hash
-from server.config import DB_PATH
-from server.models import Base, User
+from server.config import DB_BACKEND, DB_PATH
+from server.models import Base, Batch, FileVersion, Project, User
 from server.utils import ensure_dirs, now_iso
 
 _engine = None
 _Session = None
 _seekdb_instance = None
 
-# sqlite 为默认后端，便于回滚；LABFLOW_DB=seekdb 切到嵌入式 seekdb。
+# DB_BACKEND 定义在 config.py（models.py 也要用来选主键写法），这里沿用同名。
+# sqlite 为默认后端，便于回滚；LABFLOW_DB=seekdb|ducklake 切到对应后端。
 # 列长必须显式写在 models 里：seekdb 走 MySQL 协议，裸 VARCHAR 会被直接拒。
-DB_BACKEND = os.environ.get("LABFLOW_DB", "sqlite").strip().lower()
-
 
 SEEKDB_DATABASE = "labflow"
+DUCKLAKE_ALIAS = "dlk"
 
 
 def _seekdb_dir():
     # 跟着 DB_PATH 走，测试里按用例切换临时目录时自动隔离。
     return Path(DB_PATH).parent / "seekdb"
+
+
+def _ducklake_dir():
+    # 同理跟着 DB_PATH 走：sqlite 是单个 data/labflow.db，
+    # DuckLake 是 data/ducklake/{catalog.sqlite,data/,client.duckdb,ids.sqlite}。
+    return Path(DB_PATH).parent / "ducklake"
+
+
+def _ducklake_client_path():
+    # 应用侧那条 DuckDB 连接挂载用的空文件（数据都在 catalog + parquet 里），
+    # 放在 ducklake 目录内，免得被当成"数据库"单独备份或让 MCP 去开。
+    return _ducklake_dir() / "client.duckdb"
+
+
+def _ducklake_catalog_path():
+    return _ducklake_dir() / "catalog.sqlite"
+
+
+def make_ducklake_engine():
+    """duckdb-engine + DuckLake（SQLite catalog）。
+
+    DuckLake 建不了 PK/UNIQUE/FK、也没有 sequence（DL0 实测），所以这里只负责
+    「把文件挂上、让建表语句能编出来」；id 分配与唯一性校验分别见 next_id() 与 handler。
+    """
+    data_dir = _ducklake_dir() / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    catalog = _ducklake_catalog_path()
+    # catalog 必须开 WAL：默认 delete journal 时，池里第二条连接读 snapshot 会报
+    # "Failed to query most recent snapshot for DuckLake: database is locked"。
+    with sqlite3.connect(catalog) as conn:
+        conn.execute("PRAGMA journal_mode=WAL")
+    engine = create_engine(f"duckdb:///{_ducklake_client_path()}", echo=False)
+
+    @event.listens_for(engine, "connect")
+    def _attach(dbapi_connection, connection_record):
+        dbapi_connection.execute("LOAD ducklake; LOAD sqlite")
+        # IF NOT EXISTS：池里给同一个 DuckDB 文件再开连接时 dlk 已经挂过，
+        # 无条件 ATTACH 会报 database with name "dlk" already exists。
+        dbapi_connection.execute(
+            f"ATTACH IF NOT EXISTS 'ducklake:sqlite:{catalog}' AS {DUCKLAKE_ALIAS} "
+            f"(DATA_PATH '{data_dir}')"
+        )
+        dbapi_connection.execute(f"SET search_path='{DUCKLAKE_ALIAS}'")
+
+    return engine
+
+
+def _ducklake_ddl_metadata():
+    """建表用的元数据副本：把 PK/UNIQUE/FK 摘掉（DuckLake 只认 NOT NULL）。
+
+    ORM 那边的 Table 保持原样（mapper 必须有主键，关系也要留着），只有建表走副本。
+    """
+    ddl = MetaData()
+    for table in Base.metadata.tables.values():
+        table.to_metadata(ddl)
+    for table in ddl.tables.values():
+        for constraint in list(table.constraints):
+            if isinstance(constraint, (PrimaryKeyConstraint, UniqueConstraint, ForeignKeyConstraint)):
+                table.constraints.discard(constraint)
+        table.primary_key = PrimaryKeyConstraint()  # 空的主键约束不会被编进 CREATE TABLE
+        for column in table.columns:
+            column.foreign_keys.clear()
+    return ddl
+
+
+def create_all(engine):
+    if DB_BACKEND == "ducklake":
+        _ducklake_ddl_metadata().create_all(engine)
+    else:
+        Base.metadata.create_all(engine)
+
+
+def next_id(table_name):
+    """DuckLake 没有 sequence，id 由应用层从这里取。
+
+    catalog 本身就是 SQLite，加一张计数器表几乎不花钱：WAL + busy_timeout 下
+    多线程/多进程取号不重复（DL0 实测 4 线程各 100 个 = 400/400 唯一）。
+    ponytail: 每次取号开一条 SQLite 连接（~0.04ms）；要提速再考虑连接复用。
+    """
+    with sqlite3.connect(_ducklake_dir() / "ids.sqlite", timeout=30) as conn:
+        conn.execute("PRAGMA busy_timeout=5000")
+        conn.execute("CREATE TABLE IF NOT EXISTS id_seq (name TEXT PRIMARY KEY, next INTEGER)")
+        row = conn.execute(
+            "INSERT INTO id_seq (name, next) VALUES (?, 1) "
+            "ON CONFLICT(name) DO UPDATE SET next = next + 1 RETURNING next",
+            (table_name,),
+        ).fetchone()
+        return row[0]
+
+
+def _assign_app_id(mapper, connection, target):
+    if target.id is None:
+        target.id = next_id(mapper.class_.__tablename__)
+
+
+# 只在 DuckLake 下挂：其它后端由数据库自己给 id。
+# 挂在 mapper 上（而不是 handler 的建对象处），所有 ORM 插入都在 flush 前拿到号。
+if DB_BACKEND == "ducklake":
+    for _model in (User, Project, Batch, FileVersion):
+        event.listen(_model, "before_insert", _assign_app_id)
 
 
 def open_seekdb(db_dir=None, database=SEEKDB_DATABASE):
@@ -88,6 +190,8 @@ def get_engine():
                 echo=False,
                 connect_args={**opts, "charset": "utf8mb4"},
             )
+        elif DB_BACKEND == "ducklake":
+            _engine = make_ducklake_engine()
         else:
             _engine = create_engine(
                 f"sqlite:///{DB_PATH}",
@@ -129,7 +233,7 @@ def init_db():
     _engine = None
     _Session = None
     ensure_dirs()
-    Base.metadata.create_all(get_engine())
+    create_all(get_engine())
     migrate_schema()
     with session() as s:
         count = s.query(User).count()
